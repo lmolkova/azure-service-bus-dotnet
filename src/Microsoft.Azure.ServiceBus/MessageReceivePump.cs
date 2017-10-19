@@ -1,6 +1,10 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using System.Collections.Generic;
+using System.Diagnostics;
+using Microsoft.Azure.ServiceBus.Amqp;
+
 namespace Microsoft.Azure.ServiceBus
 {
     using System;
@@ -9,8 +13,24 @@ namespace Microsoft.Azure.ServiceBus
     using Core;
     using Primitives;
 
+    internal static class DiagnosticsLoggingStrings
+    {
+        public const string DiagnosticListenerName = "Microsoft.Azure.ServiceBus";
+
+        public const string ExceptionEventName = "Microsoft.Azure.ServiceBus.Exception";
+        public const string ProcessActivityName = "Microsoft.Azure.ServiceBus.Process";
+        public const string ProcessActivityStartName = "Microsoft.Azure.ServiceBus.Process.Start";
+        public const string SendActivityName = "Microsoft.Azure.ServiceBus.Send";
+        public const string SendActivityStartName = "Microsoft.Azure.ServiceBus.Send.Start";
+
+
+        public const string RequestIdPropertyName = "Request-Id";
+        public const string CorrelationContextPropertyName = "Correlation-Context";
+    }
+
     sealed class MessageReceivePump
     {
+        static readonly DiagnosticListener DiagnosticListener = new DiagnosticListener(DiagnosticsLoggingStrings.DiagnosticListenerName);
         readonly Func<Message, CancellationToken, Task> onMessageCallback;
         readonly string endpoint;
         readonly MessageHandlerOptions registerHandlerOptions;
@@ -102,7 +122,15 @@ namespace Microsoft.Azure.ServiceBus
             try
             {
                 MessagingEventSource.Log.MessageReceiverPumpUserCallbackStart(this.messageReceiver.ClientId, message);
-                await this.onMessageCallback(message, this.pumpCancellationToken).ConfigureAwait(false);
+                if (DiagnosticListener.IsEnabled())
+                {
+                    await this.OnMessageCallbackInstrumented(message, this.pumpCancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await this.onMessageCallback(message, this.pumpCancellationToken).ConfigureAwait(false);
+                }
+
                 MessagingEventSource.Log.MessageReceiverPumpUserCallbackStop(this.messageReceiver.ClientId, message);
             }
             catch (Exception exception)
@@ -132,6 +160,70 @@ namespace Microsoft.Azure.ServiceBus
             this.maxConcurrentCallsSemaphoreSlim.Release();
 
             MessagingEventSource.Log.MessageReceiverPumpDispatchTaskStop(this.messageReceiver.ClientId, message, this.maxConcurrentCallsSemaphoreSlim.CurrentCount);
+        }
+
+        private async Task OnMessageCallbackInstrumented(Message message, CancellationToken cancellationToken)
+        {
+            Activity activity = null;
+            if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityName, message))
+            {
+                var tmpActivity = new Activity(DiagnosticsLoggingStrings.ProcessActivityName);
+                if (message.UserProperties.TryGetValue(DiagnosticsLoggingStrings.RequestIdPropertyName,
+                    out object requestId))
+                {
+                    tmpActivity.SetParentId(requestId.ToString());
+
+                    //TODO : CorrelationContext
+                }
+
+                if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityName, message, tmpActivity))
+                {
+                    activity = tmpActivity;
+                    if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityStartName))
+                    {
+                        DiagnosticListener.StartActivity(activity, new
+                        {
+                            Message = message
+                        });
+                    }
+                    else
+                    {
+                        activity.Start();
+                    }
+                }
+            }
+
+            var processTask = this.onMessageCallback(message, cancellationToken);
+
+            try
+            {
+                await processTask.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ExceptionEventName))
+                {
+                    DiagnosticListener.Write(DiagnosticsLoggingStrings.ExceptionEventName,
+                        new
+                        {
+                            Exception = ex,
+                            Message = message
+                        });
+                }
+                throw;
+            }
+            finally
+            {
+                if (activity != null)
+                {
+                    Debug.Assert(activity == Activity.Current);
+                    DiagnosticListener.StopActivity(activity, new
+                    {
+                        Message = message,
+                        Status = processTask.Status
+                    });
+                }
+            }
         }
 
         void CancelAutoRenewLock(object state)

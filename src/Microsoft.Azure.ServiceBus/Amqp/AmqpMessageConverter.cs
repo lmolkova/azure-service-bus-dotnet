@@ -88,6 +88,7 @@ namespace Microsoft.Azure.ServiceBus.Amqp
             }
 
             amqpMessage.Batchable = batchable;
+
             return amqpMessage;
         }
 
