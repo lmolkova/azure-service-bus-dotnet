@@ -39,7 +39,7 @@ namespace Microsoft.Azure.ServiceBus.Core
         int deliveryCount;
         readonly bool ownsConnection;
         readonly ActiveClientLinkManager clientLinkManager;
-        private readonly DiagnosticListener diagnosticListener;
+
         /// <summary>
         /// Creates a new AMQP MessageSender.
         /// </summary>
@@ -99,7 +99,6 @@ namespace Microsoft.Azure.ServiceBus.Core
             this.RequestResponseLinkManager = new FaultTolerantAmqpObject<RequestResponseAmqpLink>(this.CreateRequestResponseLinkAsync, CloseRequestResponseSession);
             this.clientLinkManager = new ActiveClientLinkManager(this.ClientId, this.CbsTokenProvider);
 
-            this.diagnosticListener = new DiagnosticListener(DiagnosticsLoggingStrings.DiagnosticListenerName);
             MessagingEventSource.Log.MessageSenderCreateStop(serviceBusConnection.Endpoint.Authority, entityPath, this.ClientId);
         }
 
@@ -154,18 +153,7 @@ namespace Microsoft.Azure.ServiceBus.Core
 
             try
             {
-                await this.RetryPolicy.RunOperation(() =>
-                    {
-                        if (diagnosticListener.IsEnabled())
-                        {
-                            return this.OnSendInstrumentedAsync(processedMessages);
-                        }
-                        else
-                        {
-                            return this.OnSendAsync(processedMessages);
-                        }
-
-                    }, this.OperationTimeout)
+                await this.RetryPolicy.RunOperation(() => this.OnSendAsync(processedMessages), this.OperationTimeout)
                     .ConfigureAwait(false);
             }
             catch (Exception exception)
@@ -430,74 +418,6 @@ namespace Microsoft.Azure.ServiceBus.Core
                 catch (Exception exception)
                 {
                     throw AmqpExceptionHelper.GetClientException(exception, amqpLink?.GetTrackingId(), null, amqpLink?.Session.IsClosing() ?? false);
-                }
-            }
-        }
-
-        private async Task OnSendInstrumentedAsync(IList<Message> messageList)
-        {
-            SendingAmqpLink amqpLink = null;
-            Activity activity = null;
-            if (diagnosticListener.IsEnabled(DiagnosticsLoggingStrings.SendActivityName, messageList))
-            {
-                activity = new Activity(DiagnosticsLoggingStrings.SendActivityName);
-                if (diagnosticListener.IsEnabled(DiagnosticsLoggingStrings.SendActivityStartName))
-                {
-                    diagnosticListener.StartActivity(activity, new { Messages = messageList });
-                }
-                else
-                {
-                    activity.Start();
-                }
-            }
-
-            var currentActivity = Activity.Current;
-            if (currentActivity != null)
-            {
-                //TODO correaltion context
-                foreach (var message in messageList)
-                {
-                    message.UserProperties.Add(DiagnosticsLoggingStrings.RequestIdPropertyName, currentActivity.Id);
-                }
-            }
-
-            var sendTask = OnSendAsync(messageList);
-
-            try
-            {
-                await sendTask.ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                if (diagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ExceptionEventName))
-                {
-                    this.SendLinkManager.TryGetOpenedObject(out amqpLink);
-                    diagnosticListener.Write(DiagnosticsLoggingStrings.ExceptionEventName,
-                        new
-                        {
-                            Exception = ex,
-                            Messages = messageList,
-                            TrackingId = amqpLink?.GetTrackingId(),
-                            AmqpSettings = amqpLink?.Settings
-                        });
-                }
-                throw;
-            }
-            finally
-            {
-                if (activity != null)
-                {
-                    if (amqpLink == null)
-                    {
-                        this.SendLinkManager.TryGetOpenedObject(out amqpLink);
-                    }
-                    Debug.Assert(activity == Activity.Current);
-                    diagnosticListener.StopActivity(activity, new
-                    {
-                        MessageList = messageList,
-                        AmqpSettings = amqpLink?.Settings,
-                        Status = sendTask.Status
-                    });
                 }
             }
         }

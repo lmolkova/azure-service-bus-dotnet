@@ -165,7 +165,7 @@ namespace Microsoft.Azure.ServiceBus
         private async Task OnMessageCallbackInstrumented(Message message, CancellationToken cancellationToken)
         {
             Activity activity = null;
-            if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityName, message))
+            if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityName, message, messageReceiver.Path))
             {
                 var tmpActivity = new Activity(DiagnosticsLoggingStrings.ProcessActivityName);
                 if (message.UserProperties.TryGetValue(DiagnosticsLoggingStrings.RequestIdPropertyName,
@@ -173,8 +173,21 @@ namespace Microsoft.Azure.ServiceBus
                 {
                     tmpActivity.SetParentId(requestId.ToString());
 
-                    //TODO : CorrelationContext
+                    if (message.UserProperties.TryGetValue(DiagnosticsLoggingStrings.CorrelationContextPropertyName,
+                        out object ctxObj))
+                    {
+                        var correlationContext = (KeyValuePair<string, string>[]) ctxObj;
+                        foreach (var kvp in correlationContext)
+                        {
+                            tmpActivity.AddBaggage(kvp.Key, kvp.Value);
+                        }
+                    }
                 }
+
+                tmpActivity.AddTag("span.kind", "consumer");
+                tmpActivity.AddTag("peer.service", "servicebus");
+
+                tmpActivity.AddTag("message_bus.destination", messageReceiver.Path);
 
                 if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityName, message, tmpActivity))
                 {
@@ -183,7 +196,9 @@ namespace Microsoft.Azure.ServiceBus
                     {
                         DiagnosticListener.StartActivity(activity, new
                         {
-                            Message = message
+                            Message = message,
+                            QueueName = messageReceiver.Path,
+                            ClientId = messageReceiver.ClientId
                         });
                     }
                     else
@@ -193,10 +208,10 @@ namespace Microsoft.Azure.ServiceBus
                 }
             }
 
-            var processTask = this.onMessageCallback(message, cancellationToken);
-
+            Task processTask = null;
             try
             {
+                processTask = this.onMessageCallback(message, cancellationToken);
                 await processTask.ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -207,7 +222,9 @@ namespace Microsoft.Azure.ServiceBus
                         new
                         {
                             Exception = ex,
-                            Message = message
+                            Message = message,
+                            QueueName = messageReceiver.Path,
+                            ClientId = messageReceiver.ClientId
                         });
                 }
                 throw;
@@ -220,7 +237,9 @@ namespace Microsoft.Azure.ServiceBus
                     DiagnosticListener.StopActivity(activity, new
                     {
                         Message = message,
-                        Status = processTask.Status
+                        QueueName = messageReceiver.Path,
+                        ClientId = messageReceiver.ClientId,
+                        Status = processTask?.Status ?? TaskStatus.Faulted
                     });
                 }
             }

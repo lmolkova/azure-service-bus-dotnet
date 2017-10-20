@@ -1,6 +1,10 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using System.Diagnostics;
+using System.Linq;
+using System.Text;
+
 namespace Microsoft.Azure.ServiceBus
 {
     using System;
@@ -56,6 +60,8 @@ namespace Microsoft.Azure.ServiceBus
     {
         readonly bool ownsConnection;
         readonly object syncLock;
+        readonly DiagnosticListener diagnosticListener;
+
         int prefetchCount;
         MessageSender innerSender;
         MessageReceiver innerReceiver;
@@ -109,6 +115,7 @@ namespace Microsoft.Azure.ServiceBus
             this.ReceiveMode = receiveMode;
             this.TokenProvider = this.ServiceBusConnection.CreateTokenProvider();
             this.CbsTokenProvider = new TokenProviderAdapter(this.TokenProvider, serviceBusConnection.OperationTimeout);
+            this.diagnosticListener = new DiagnosticListener(DiagnosticsLoggingStrings.DiagnosticListenerName);
 
             MessagingEventSource.Log.QueueClientCreateStop(serviceBusConnection.Endpoint.Authority, entityPath, this.ClientId);
         }
@@ -305,7 +312,15 @@ namespace Microsoft.Azure.ServiceBus
         public Task SendAsync(IList<Message> messageList)
         {
             this.ThrowIfClosed();
-            return this.InnerSender.SendAsync(messageList);
+
+            if (diagnosticListener.IsEnabled())
+            {
+                return this.OnSendInstrumentedAsync(messageList);
+            }
+            else
+            {
+                return this.InnerSender.SendAsync(messageList);
+            }
         }
 
         /// <summary>
@@ -498,6 +513,85 @@ namespace Microsoft.Azure.ServiceBus
             if (this.ownsConnection)
             {
                 await this.ServiceBusConnection.CloseAsync().ConfigureAwait(false);
+            }
+        }
+
+        private async Task OnSendInstrumentedAsync(IList<Message> messageList)
+        {
+            Activity activity = null;
+            if (diagnosticListener.IsEnabled(DiagnosticsLoggingStrings.SendActivityName, messageList, QueueName))
+            {
+                activity = new Activity(DiagnosticsLoggingStrings.SendActivityName);
+
+
+                activity.AddTag("span.kind", "producer");
+                activity.AddTag("peer.service", "servicebus");
+
+                activity.AddTag("message_bus.destination", QueueName);
+
+                if (diagnosticListener.IsEnabled(DiagnosticsLoggingStrings.SendActivityStartName))
+                {
+                    diagnosticListener.StartActivity(activity, new {
+                        Messages = messageList,
+                        QueueName = this.QueueName,
+                        ClientId = this.ClientId
+                    });
+                }
+                else
+                {
+                    activity.Start();
+                }
+            }
+
+            var currentActivity = Activity.Current;
+            if (currentActivity != null)
+            {
+                var correlationContext = currentActivity.Baggage.ToArray();
+                
+                foreach (var message in messageList)
+                {
+                    message.UserProperties[DiagnosticsLoggingStrings.RequestIdPropertyName] = currentActivity.Id;
+                    if (correlationContext.Any())
+                    {
+                        message.UserProperties[DiagnosticsLoggingStrings.CorrelationContextPropertyName] = correlationContext;
+                    }
+                }
+            }
+
+            Task sendTask = null;
+
+            try
+            {
+                sendTask = this.InnerSender.SendAsync(messageList);
+                await sendTask.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                if (diagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ExceptionEventName))
+                {
+                    diagnosticListener.Write(DiagnosticsLoggingStrings.ExceptionEventName,
+                        new
+                        {
+                            Exception = ex,
+                            Messages = messageList,
+                            QueueName = this.QueueName,
+                            ClientId = this.ClientId
+                        });
+                }
+                throw;
+            }
+            finally
+            {
+                if (activity != null)
+                {
+                    diagnosticListener.StopActivity(activity, new
+                    {
+                        MessageList = messageList,
+                        QueueName = this.QueueName,
+                        ClientId = this.ClientId,
+                        Status = sendTask?.Status ?? TaskStatus.Faulted
+                    });
+                }
             }
         }
     }
