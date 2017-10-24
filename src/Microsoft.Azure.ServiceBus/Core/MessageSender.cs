@@ -235,7 +235,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             }
             finally
             {
-                diagnosticSource.ScheduleStop(activity, message, scheduleEnqueueTimeUtc, scheduleTask?.Status);
+                diagnosticSource.ScheduleStop(activity, message, scheduleEnqueueTimeUtc, scheduleTask?.Status, result);
             }
 
             MessagingEventSource.Log.ScheduleMessageStop(this.ClientId);

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.Azure.Amqp.Framing;
 
 namespace Microsoft.Azure.ServiceBus
 {
@@ -40,6 +39,7 @@ namespace Microsoft.Azure.ServiceBus
             return DiagnosticListener.IsEnabled();
         }
 
+
         #region Send
 
         internal Activity SendStart(IList<Message> messageList)
@@ -64,7 +64,7 @@ namespace Microsoft.Azure.ServiceBus
             {
                 DiagnosticListener.StopActivity(activity, new
                 {
-                    MessageList = messageList,
+                    Messages = messageList,
                     QueueName = this.queueName,
                     ClientId = this.clientId,
                     Endpoint = this.endpoint,
@@ -72,7 +72,9 @@ namespace Microsoft.Azure.ServiceBus
                 });
             }
         }
+
         #endregion
+
 
         #region Process
 
@@ -123,6 +125,7 @@ namespace Microsoft.Azure.ServiceBus
 
         #endregion
 
+
         #region Schedule
 
         internal Activity ScheduleStart(Message message, DateTimeOffset scheduleEnqueueTimeUtc)
@@ -141,7 +144,7 @@ namespace Microsoft.Azure.ServiceBus
             return activity;
         }
 
-        internal void ScheduleStop(Activity activity, Message message, DateTimeOffset scheduleEnqueueTimeUtc, TaskStatus? status)
+        internal void ScheduleStop(Activity activity, Message message, DateTimeOffset scheduleEnqueueTimeUtc, TaskStatus? status, long sequenceNumber)
         {
             if (activity != null)
             {
@@ -152,12 +155,14 @@ namespace Microsoft.Azure.ServiceBus
                     QueueName = this.queueName,
                     ClientId = this.clientId,
                     Endpoint = this.endpoint,
+                    SequenceNumber = sequenceNumber,
                     Status = status ?? TaskStatus.Faulted
                 });
             }
         }
 
         #endregion
+
 
         #region Cancel
 
@@ -189,6 +194,7 @@ namespace Microsoft.Azure.ServiceBus
 
         #endregion
 
+
         #region Receive
 
         internal Activity ReceiveStart(int messageCount)
@@ -202,7 +208,7 @@ namespace Microsoft.Azure.ServiceBus
             });
         }
 
-        internal void ReceiveStop(Activity activity, int messageCount, TaskStatus? status)
+        internal void ReceiveStop(Activity activity, int messageCount, TaskStatus? status, IList<Message> messageList)
         {
             if (activity != null)
             {
@@ -212,12 +218,14 @@ namespace Microsoft.Azure.ServiceBus
                     QueueName = this.queueName,
                     ClientId = this.clientId,
                     Endpoint = this.endpoint,
-                    Status = status ?? TaskStatus.Faulted
+                    Status = status ?? TaskStatus.Faulted,
+                    Messages = messageList
                 });
             }
         }
 
         #endregion
+
 
         #region Peek
 
@@ -233,7 +241,7 @@ namespace Microsoft.Azure.ServiceBus
             });
         }
 
-        internal void PeekStop(Activity activity, long fromSequenceNumber, int messageCount, TaskStatus? status)
+        internal void PeekStop(Activity activity, long fromSequenceNumber, int messageCount, TaskStatus? status, IList<Message> messageList)
         {
             if (activity != null)
             {
@@ -244,12 +252,14 @@ namespace Microsoft.Azure.ServiceBus
                     QueueName = this.queueName,
                     ClientId = this.clientId,
                     Endpoint = this.endpoint,
-                    Status = status ?? TaskStatus.Faulted
+                    Status = status ?? TaskStatus.Faulted,
+                    Messages = messageList
                 });
             }
         }
 
         #endregion
+
 
         #region ReceiveDeffered
 
@@ -264,7 +274,7 @@ namespace Microsoft.Azure.ServiceBus
             });
         }
 
-        internal void ReceiveDefferedStop(Activity activity, IEnumerable<long> sequenceNumbers, TaskStatus? status)
+        internal void ReceiveDefferedStop(Activity activity, IEnumerable<long> sequenceNumbers, TaskStatus? status, IList<Message> messageList)
         {
             if (activity != null)
             {
@@ -274,12 +284,14 @@ namespace Microsoft.Azure.ServiceBus
                     QueueName = this.queueName,
                     ClientId = this.clientId,
                     Endpoint = this.endpoint,
+                    Messages = messageList,
                     Status = status ?? TaskStatus.Faulted
                 });
             }
         }
 
         #endregion
+
 
         #region  Complete
 
@@ -288,7 +300,6 @@ namespace Microsoft.Azure.ServiceBus
             return Start("Complete", () => new
             {
                 LockTokens = lockTokens,
-                PropertiesToModify = propertiesToModify,
                 QueueName = this.queueName,
                 ClientId = this.clientId,
                 Endpoint = this.endpoint
@@ -302,7 +313,6 @@ namespace Microsoft.Azure.ServiceBus
                 DiagnosticListener.StopActivity(activity, new
                 {
                     LockTokens = lockTokens,
-                    PropertiesToModify = propertiesToModify,
                     QueueName = this.queueName,
                     ClientId = this.clientId,
                     Endpoint = this.endpoint,
@@ -313,28 +323,27 @@ namespace Microsoft.Azure.ServiceBus
 
         #endregion
 
-        #region Abandon
 
-        internal Activity AbandonStart(string lockToken, IDictionary<string, object> propertiesToModify)
+        #region Dispose
+
+        internal Activity DisposeStart(string operationName, string lockToken)
         {
-            return Start("Abandon", () => new
+            return Start(operationName, () => new
             {
                 LockToken = lockToken,
-                PropertiesToModify = propertiesToModify,
                 QueueName = this.queueName,
                 ClientId = this.clientId,
                 Endpoint = this.endpoint
             });
         }
 
-        internal void AbandonStop(Activity activity, string lockToken, IDictionary<string, object> propertiesToModify, TaskStatus? status)
+        internal void DisposeStop(Activity activity, string lockToken, TaskStatus? status)
         {
             if (activity != null)
             {
                 DiagnosticListener.StopActivity(activity, new
                 {
                     LockToken = lockToken,
-                    PropertiesToModify = propertiesToModify,
                     QueueName = this.queueName,
                     ClientId = this.clientId,
                     Endpoint = this.endpoint,
@@ -345,74 +354,7 @@ namespace Microsoft.Azure.ServiceBus
 
         #endregion
 
-        #region Defer
-
-        internal Activity DeferStart(string lockToken, IDictionary<string, object> propertiesToModify)
-        {
-            return Start("Defer", () => new
-            {
-                LockToken = lockToken,
-                PropertiesToModify = propertiesToModify,
-                QueueName = this.queueName,
-                ClientId = this.clientId,
-                Endpoint = this.endpoint
-            });
-        }
-
-        internal void DeferStop(Activity activity, string lockToken, IDictionary<string, object> propertiesToModify, TaskStatus? status)
-        {
-            if (activity != null)
-            {
-                DiagnosticListener.StopActivity(activity, new
-                {
-                    LockToken = lockToken,
-                    PropertiesToModify = propertiesToModify,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
-                    Endpoint = this.endpoint,
-                    Status = status ?? TaskStatus.Faulted
-                });
-            }
-        }
-
-        #endregion
-
-        #region DeadLetter
-
-        internal Activity DeadLetterStart(string lockToken, IDictionary<string, object> propertiesToModify, string deadLetterReason, string deadLetterDescription)
-        {
-            return Start("DeadLetter", () => new
-            {
-                LockToken = lockToken,
-                PropertiesToModify = propertiesToModify,
-                DeadLetterReason = deadLetterReason,
-                DeadLetterDescription = deadLetterDescription,
-                QueueName = this.queueName,
-                ClientId = this.clientId,
-                Endpoint = this.endpoint
-            });
-        }
-
-        internal void DeadLetterStop(Activity activity, string lockToken, IDictionary<string, object> propertiesToModify, string deadLetterReason, string deadLetterDescription, TaskStatus? status)
-        {
-            if (activity != null)
-            {
-                DiagnosticListener.StopActivity(activity, new
-                {
-                    LockToken = lockToken,
-                    PropertiesToModify = propertiesToModify,
-                    DeadLetterReason = deadLetterReason,
-                    DeadLetterDescription = deadLetterDescription,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
-                    Endpoint = this.endpoint,
-                    Status = status ?? TaskStatus.Faulted
-                });
-            }
-        }
-
-        #endregion
-
+ 
         #region RenewLock
 
         internal Activity RenewLockStart(string lockToken)
@@ -426,7 +368,7 @@ namespace Microsoft.Azure.ServiceBus
             });
         }
 
-        internal void RenewLockStop(Activity activity, string lockToken, TaskStatus? status)
+        internal void RenewLockStop(Activity activity, string lockToken, TaskStatus? status, DateTime lockedUntilUtc)
         {
             if (activity != null)
             {
@@ -436,7 +378,8 @@ namespace Microsoft.Azure.ServiceBus
                     QueueName = this.queueName,
                     ClientId = this.clientId,
                     Endpoint = this.endpoint,
-                    Status = status ?? TaskStatus.Faulted
+                    Status = status ?? TaskStatus.Faulted,
+                    LockedUntilUtc = lockedUntilUtc
                 });
             }
         }

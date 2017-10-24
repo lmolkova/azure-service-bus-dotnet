@@ -306,6 +306,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             Task receiveTask = null;
 
             IList<Message> unprocessedMessageList = null;
+            IList<Message> processedMessageList = null;
             try
             {
                 receiveTask = this.RetryPolicy.RunOperation(
@@ -324,7 +325,7 @@ namespace Microsoft.Azure.ServiceBus.Core
                     return unprocessedMessageList;
                 }
 
-                return await this.ProcessMessages(unprocessedMessageList).ConfigureAwait(false);
+                processedMessageList = await this.ProcessMessages(unprocessedMessageList).ConfigureAwait(false);
             }
             catch (Exception exception)
             {
@@ -337,8 +338,10 @@ namespace Microsoft.Azure.ServiceBus.Core
             }
             finally
             {
-                diagnosticSource.ReceiveStop(activity, maxMessageCount, receiveTask?.Status);
+                diagnosticSource.ReceiveStop(activity, maxMessageCount, receiveTask?.Status, processedMessageList);
             }
+
+            return processedMessageList;
         }
 
         /// <summary>
@@ -408,7 +411,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             }
             finally
             {
-                diagnosticSource.ReceiveDefferedStop(activity, sequenceNumberList, receiveTask?.Status);
+                diagnosticSource.ReceiveDefferedStop(activity, sequenceNumberList, receiveTask?.Status, messages);
             }
             MessagingEventSource.Log.MessageReceiveDeferredMessageStop(this.ClientId, messages?.Count ?? 0);
 
@@ -498,7 +501,7 @@ namespace Microsoft.Azure.ServiceBus.Core
 
             MessagingEventSource.Log.MessageAbandonStart(this.ClientId, 1, lockToken);
             bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.AbandonStart(lockToken, propertiesToModify) : null;
+            Activity activity = isDiagnosticsEnabled ? diagnosticSource.DisposeStart("Abandon", lockToken) : null;
             Task abandonTask = null;
 
             try
@@ -518,7 +521,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             }
             finally
             {
-                diagnosticSource.AbandonStop(activity, lockToken, propertiesToModify, abandonTask?.Status);
+                diagnosticSource.DisposeStop(activity, lockToken, abandonTask?.Status);
             }
 
 
@@ -543,7 +546,7 @@ namespace Microsoft.Azure.ServiceBus.Core
 
             MessagingEventSource.Log.MessageDeferStart(this.ClientId, 1, lockToken);
             bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.DeferStart(lockToken, propertiesToModify) : null;
+            Activity activity = isDiagnosticsEnabled ? diagnosticSource.DisposeStart("Defer", lockToken) : null;
             Task deferTask = null;
 
             try
@@ -563,7 +566,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             }
             finally
             {
-                diagnosticSource.DeferStop(activity, lockToken, propertiesToModify, deferTask?.Status);
+                diagnosticSource.DisposeStop(activity, lockToken, deferTask?.Status);
             }
             MessagingEventSource.Log.MessageDeferStop(this.ClientId);
         }
@@ -587,7 +590,7 @@ namespace Microsoft.Azure.ServiceBus.Core
 
             MessagingEventSource.Log.MessageDeadLetterStart(this.ClientId, 1, lockToken);
             bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.DeadLetterStart(lockToken, propertiesToModify, null, null) : null;
+            Activity activity = isDiagnosticsEnabled ? diagnosticSource.DisposeStart("DeadLetter", lockToken) : null;
             Task deadLetterTask = null;
 
             try
@@ -607,7 +610,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             }
             finally
             {
-                diagnosticSource.DeadLetterStop(activity, lockToken, propertiesToModify, null, null, deadLetterTask?.Status);
+                diagnosticSource.DisposeStop(activity, lockToken, deadLetterTask?.Status);
             }
             MessagingEventSource.Log.MessageDeadLetterStop(this.ClientId);
         }
@@ -632,7 +635,7 @@ namespace Microsoft.Azure.ServiceBus.Core
 
             MessagingEventSource.Log.MessageDeadLetterStart(this.ClientId, 1, lockToken);
             bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.DeadLetterStart(lockToken, null, deadLetterReason, deadLetterErrorDescription) : null;
+            Activity activity = isDiagnosticsEnabled ? diagnosticSource.DisposeStart("DeadLetter", lockToken) : null;
             Task deadLetterTask = null;
 
             try
@@ -654,7 +657,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             }
             finally
             {
-                diagnosticSource.DeadLetterStop(activity, lockToken, null, deadLetterReason, deadLetterErrorDescription, deadLetterTask?.Status);
+                diagnosticSource.DisposeStop(activity, lockToken, deadLetterTask?.Status);
             }
 
             MessagingEventSource.Log.MessageDeadLetterStop(this.ClientId);
@@ -715,7 +718,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             }
             finally
             {
-                diagnosticSource.RenewLockStop(activity, lockToken, renewTask?.Status);
+                diagnosticSource.RenewLockStop(activity, lockToken, renewTask?.Status, lockedUntilUtc);
             }
             MessagingEventSource.Log.MessageRenewLockStop(this.ClientId);
 
@@ -798,7 +801,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             }
             finally
             {
-                diagnosticSource.PeekStop(activity, fromSequenceNumber, messageCount, peekTask?.Status);
+                diagnosticSource.PeekStop(activity, fromSequenceNumber, messageCount, peekTask?.Status, messages);
             }
 
             MessagingEventSource.Log.MessagePeekStop(this.ClientId, messages?.Count ?? 0);
