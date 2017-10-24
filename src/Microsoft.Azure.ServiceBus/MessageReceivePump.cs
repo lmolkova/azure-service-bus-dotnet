@@ -13,30 +13,15 @@ namespace Microsoft.Azure.ServiceBus
     using Core;
     using Primitives;
 
-    internal static class DiagnosticsLoggingStrings
-    {
-        public const string DiagnosticListenerName = "Microsoft.Azure.ServiceBus";
-
-        public const string ExceptionEventName = "Microsoft.Azure.ServiceBus.Exception";
-        public const string ProcessActivityName = "Microsoft.Azure.ServiceBus.Process";
-        public const string ProcessActivityStartName = "Microsoft.Azure.ServiceBus.Process.Start";
-        public const string SendActivityName = "Microsoft.Azure.ServiceBus.Send";
-        public const string SendActivityStartName = "Microsoft.Azure.ServiceBus.Send.Start";
-
-
-        public const string RequestIdPropertyName = "Request-Id";
-        public const string CorrelationContextPropertyName = "Correlation-Context";
-    }
-
     sealed class MessageReceivePump
     {
-        static readonly DiagnosticListener DiagnosticListener = new DiagnosticListener(DiagnosticsLoggingStrings.DiagnosticListenerName);
         readonly Func<Message, CancellationToken, Task> onMessageCallback;
         readonly string endpoint;
         readonly MessageHandlerOptions registerHandlerOptions;
         readonly IMessageReceiver messageReceiver;
         readonly CancellationToken pumpCancellationToken;
         readonly SemaphoreSlim maxConcurrentCallsSemaphoreSlim;
+        readonly ServiceBusDiagnosticsSource diagnosticSource;
 
         public MessageReceivePump(IMessageReceiver messageReceiver,
             MessageHandlerOptions registerHandlerOptions,
@@ -50,6 +35,7 @@ namespace Microsoft.Azure.ServiceBus
             this.endpoint = endpoint;
             this.pumpCancellationToken = pumpCancellationToken;
             this.maxConcurrentCallsSemaphoreSlim = new SemaphoreSlim(this.registerHandlerOptions.MaxConcurrentCalls);
+            this.diagnosticSource = new ServiceBusDiagnosticsSource(messageReceiver.Path, endpoint, messageReceiver.ClientId);
         }
 
         public void StartPump()
@@ -109,6 +95,9 @@ namespace Microsoft.Azure.ServiceBus
             Timer autoRenewLockCancellationTimer = null;
 
             MessagingEventSource.Log.MessageReceiverPumpDispatchTaskStart(this.messageReceiver.ClientId, message);
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? diagnosticSource.ProcessStart(message) : null;
+            Task processTask = null;
 
             if (this.ShouldRenewLock())
             {
@@ -122,20 +111,18 @@ namespace Microsoft.Azure.ServiceBus
             try
             {
                 MessagingEventSource.Log.MessageReceiverPumpUserCallbackStart(this.messageReceiver.ClientId, message);
-                if (DiagnosticListener.IsEnabled())
-                {
-                    await this.OnMessageCallbackInstrumented(message, this.pumpCancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    await this.onMessageCallback(message, this.pumpCancellationToken).ConfigureAwait(false);
-                }
+                processTask = this.onMessageCallback(message, this.pumpCancellationToken);
+                await processTask.ConfigureAwait(false);
 
                 MessagingEventSource.Log.MessageReceiverPumpUserCallbackStop(this.messageReceiver.ClientId, message);
             }
             catch (Exception exception)
             {
                 MessagingEventSource.Log.MessageReceiverPumpUserCallbackException(this.messageReceiver.ClientId, message, exception);
+                if (isDiagnosticsEnabled)
+                {
+                    diagnosticSource.ReportException(exception);
+                }
                 await this.RaiseExceptionReceived(exception, ExceptionReceivedEventArgsAction.UserCallback).ConfigureAwait(false);
 
                 // Nothing much to do if UserCallback throws, Abandon message and Release semaphore.
@@ -153,6 +140,7 @@ namespace Microsoft.Azure.ServiceBus
                 renewLockCancellationTokenSource?.Cancel();
                 renewLockCancellationTokenSource?.Dispose();
                 autoRenewLockCancellationTimer?.Dispose();
+                diagnosticSource.ProcessStop(activity, message, processTask?.Status);
             }
 
             // If we've made it this far, user callback completed fine. Complete message and Release semaphore.
@@ -160,89 +148,6 @@ namespace Microsoft.Azure.ServiceBus
             this.maxConcurrentCallsSemaphoreSlim.Release();
 
             MessagingEventSource.Log.MessageReceiverPumpDispatchTaskStop(this.messageReceiver.ClientId, message, this.maxConcurrentCallsSemaphoreSlim.CurrentCount);
-        }
-
-        private async Task OnMessageCallbackInstrumented(Message message, CancellationToken cancellationToken)
-        {
-            Activity activity = null;
-            if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityName, message, messageReceiver.Path))
-            {
-                var tmpActivity = new Activity(DiagnosticsLoggingStrings.ProcessActivityName);
-                if (message.UserProperties.TryGetValue(DiagnosticsLoggingStrings.RequestIdPropertyName,
-                    out object requestId))
-                {
-                    tmpActivity.SetParentId(requestId.ToString());
-
-                    if (message.UserProperties.TryGetValue(DiagnosticsLoggingStrings.CorrelationContextPropertyName,
-                        out object ctxObj))
-                    {
-                        var correlationContext = (KeyValuePair<string, string>[]) ctxObj;
-                        foreach (var kvp in correlationContext)
-                        {
-                            tmpActivity.AddBaggage(kvp.Key, kvp.Value);
-                        }
-                    }
-                }
-
-                tmpActivity.AddTag("span.kind", "consumer");
-                tmpActivity.AddTag("peer.service", "servicebus");
-
-                tmpActivity.AddTag("message_bus.destination", messageReceiver.Path);
-
-                if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityName, message, tmpActivity))
-                {
-                    activity = tmpActivity;
-                    if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityStartName))
-                    {
-                        DiagnosticListener.StartActivity(activity, new
-                        {
-                            Message = message,
-                            QueueName = messageReceiver.Path,
-                            ClientId = messageReceiver.ClientId
-                        });
-                    }
-                    else
-                    {
-                        activity.Start();
-                    }
-                }
-            }
-
-            Task processTask = null;
-            try
-            {
-                processTask = this.onMessageCallback(message, cancellationToken);
-                await processTask.ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ExceptionEventName))
-                {
-                    DiagnosticListener.Write(DiagnosticsLoggingStrings.ExceptionEventName,
-                        new
-                        {
-                            Exception = ex,
-                            Message = message,
-                            QueueName = messageReceiver.Path,
-                            ClientId = messageReceiver.ClientId
-                        });
-                }
-                throw;
-            }
-            finally
-            {
-                if (activity != null)
-                {
-                    Debug.Assert(activity == Activity.Current);
-                    DiagnosticListener.StopActivity(activity, new
-                    {
-                        Message = message,
-                        QueueName = messageReceiver.Path,
-                        ClientId = messageReceiver.ClientId,
-                        Status = processTask?.Status ?? TaskStatus.Faulted
-                    });
-                }
-            }
         }
 
         void CancelAutoRenewLock(object state)
