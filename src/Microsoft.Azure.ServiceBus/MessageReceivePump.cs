@@ -1,13 +1,10 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using System.Collections.Generic;
-using System.Diagnostics;
-using Microsoft.Azure.ServiceBus.Amqp;
-
 namespace Microsoft.Azure.ServiceBus
 {
     using System;
+    using System.Diagnostics;
     using System.Threading;
     using System.Threading.Tasks;
     using Core;
@@ -26,16 +23,16 @@ namespace Microsoft.Azure.ServiceBus
         public MessageReceivePump(IMessageReceiver messageReceiver,
             MessageHandlerOptions registerHandlerOptions,
             Func<Message, CancellationToken, Task> callback,
-            string endpoint,
+            Uri endpoint,
             CancellationToken pumpCancellationToken)
         {
             this.messageReceiver = messageReceiver ?? throw new ArgumentNullException(nameof(messageReceiver));
             this.registerHandlerOptions = registerHandlerOptions;
             this.onMessageCallback = callback;
-            this.endpoint = endpoint;
+            this.endpoint = endpoint.Authority;
             this.pumpCancellationToken = pumpCancellationToken;
             this.maxConcurrentCallsSemaphoreSlim = new SemaphoreSlim(this.registerHandlerOptions.MaxConcurrentCalls);
-            this.diagnosticSource = new ServiceBusDiagnosticsSource(messageReceiver.Path, endpoint, messageReceiver.ClientId);
+            this.diagnosticSource = new ServiceBusDiagnosticsSource(messageReceiver.Path, endpoint);
         }
 
         public void StartPump()
@@ -133,6 +130,9 @@ namespace Microsoft.Azure.ServiceBus
 
                 // AbandonMessageIfNeededAsync should take care of not throwing exception
                 this.maxConcurrentCallsSemaphoreSlim.Release();
+
+                diagnosticSource.ProcessStop(activity, message, processTask?.Status);
+
                 return;
             }
             finally
@@ -140,13 +140,13 @@ namespace Microsoft.Azure.ServiceBus
                 renewLockCancellationTokenSource?.Cancel();
                 renewLockCancellationTokenSource?.Dispose();
                 autoRenewLockCancellationTimer?.Dispose();
-                diagnosticSource.ProcessStop(activity, message, processTask?.Status);
             }
 
             // If we've made it this far, user callback completed fine. Complete message and Release semaphore.
             await this.CompleteMessageIfNeededAsync(message).ConfigureAwait(false);
             this.maxConcurrentCallsSemaphoreSlim.Release();
 
+            diagnosticSource.ProcessStop(activity, message, processTask?.Status);
             MessagingEventSource.Log.MessageReceiverPumpDispatchTaskStop(this.messageReceiver.ClientId, message, this.maxConcurrentCallsSemaphoreSlim.CurrentCount);
         }
 

@@ -163,6 +163,7 @@ namespace Microsoft.Azure.ServiceBus
         /// </summary>
         public override IList<ServiceBusPlugin> RegisteredPlugins { get; } = new List<ServiceBusPlugin>();
 
+        //TODO
         /// <summary>
         /// Gets a session object of any <see cref="IMessageSession.SessionId"/> that can be used to receive messages for that sessionId.
         /// </summary>

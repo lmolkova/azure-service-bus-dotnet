@@ -41,6 +41,7 @@ namespace Microsoft.Azure.ServiceBus
         /// </summary>
         public string SessionId => this.SessionIdInternal;
 
+        //TODO next 3
         public Task<byte[]> GetStateAsync()
         {
             this.ThrowIfClosed();
@@ -53,12 +54,15 @@ namespace Microsoft.Azure.ServiceBus
             return this.OnSetStateAsync(sessionState);
         }
 
+        //TODO
         public Task RenewSessionLockAsync()
         {
             this.ThrowIfClosed();
             return this.OnRenewSessionLockAsync();
         }
 
+
+        //todo: another pump
         protected override void OnMessageHandler(MessageHandlerOptions registerHandlerOptions, Func<Message, CancellationToken, Task> callback)
         {
             throw new InvalidOperationException($"{nameof(RegisterMessageHandler)} is not supported for Sessions.");

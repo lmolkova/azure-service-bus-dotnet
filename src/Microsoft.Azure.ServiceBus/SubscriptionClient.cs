@@ -404,6 +404,7 @@ namespace Microsoft.Azure.ServiceBus
             this.SessionPumpHost.OnSessionHandler(handler, sessionHandlerOptions);
         }
 
+        //TODO
         /// <summary>
         /// Adds a rule to the current subscription to filter the messages reaching from topic to the subscription.
         /// </summary>
@@ -457,6 +458,7 @@ namespace Microsoft.Azure.ServiceBus
             MessagingEventSource.Log.AddRuleStop(this.ClientId);
         }
 
+        //TODO
         /// <summary>
         /// Removes the rule on the subscription identified by <paramref name="ruleName" />.
         /// </summary>
@@ -485,6 +487,7 @@ namespace Microsoft.Azure.ServiceBus
             MessagingEventSource.Log.RemoveRuleStop(this.ClientId);
         }
 
+        //TODO
         /// <summary>
         /// Get all rules associated with the subscription.
         /// </summary>

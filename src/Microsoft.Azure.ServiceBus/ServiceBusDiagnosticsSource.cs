@@ -1,12 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Threading.Tasks;
+﻿// Copyright (c) Microsoft. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 namespace Microsoft.Azure.ServiceBus
 {
-    internal static class DiagnosticsLoggingStrings
+    using System;
+    using System.Collections.Generic;
+    using System.Diagnostics;
+    using System.Linq;
+    using System.Threading.Tasks;
+
+    internal class ServiceBusDiagnosticsSource
     {
         public const string DiagnosticListenerName = "Microsoft.Azure.ServiceBus";
 
@@ -18,20 +21,16 @@ namespace Microsoft.Azure.ServiceBus
 
         public const string RequestIdPropertyName = "Request-Id";
         public const string CorrelationContextPropertyName = "Correlation-Context";
-    }
+        public const string RelatedToTag = "RelatedTo";
 
-    internal class ServiceBusDiagnosticsSource
-    {
-        private static readonly DiagnosticListener DiagnosticListener = new DiagnosticListener(DiagnosticsLoggingStrings.DiagnosticListenerName);
-        private readonly string queueName;
-        private readonly string endpoint;
-        private readonly string clientId;
+        private static readonly DiagnosticListener DiagnosticListener = new DiagnosticListener(DiagnosticListenerName);
+        private readonly string entityPath;
+        private readonly Uri endpoint;
 
-        public ServiceBusDiagnosticsSource(string queueName, string endpoint, string clientId)
+        public ServiceBusDiagnosticsSource(string entityPath, Uri endpoint)
         {
-            this.queueName = queueName;
+            this.entityPath = entityPath;
             this.endpoint = endpoint;
-            this.clientId = clientId;
         }
 
         public static bool IsEnabled()
@@ -48,8 +47,7 @@ namespace Microsoft.Azure.ServiceBus
                 new
                 {
                     Messages = messageList,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
+                    Entity = this.entityPath,
                     Endpoint = this.endpoint
                 });
             
@@ -65,8 +63,7 @@ namespace Microsoft.Azure.ServiceBus
                 DiagnosticListener.StopActivity(activity, new
                 {
                     Messages = messageList,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
+                    Entity = this.entityPath,
                     Endpoint = this.endpoint,
                     Status = status ?? TaskStatus.Faulted
                 });
@@ -81,21 +78,20 @@ namespace Microsoft.Azure.ServiceBus
         internal Activity ProcessStart(Message message)
         {
             Activity activity = null;
-            if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityName, message, this.queueName))
+            if (DiagnosticListener.IsEnabled(ProcessActivityName, message, this.entityPath))
             {
-                var tmpActivity = new Activity(DiagnosticsLoggingStrings.ProcessActivityName);
-                TryExtract(message, tmpActivity);
+                var tmpActivity = new Activity(ProcessActivityName);
+                tmpActivity.ExtractFrom(message);
 
-                if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityName, message, tmpActivity))
+                if (DiagnosticListener.IsEnabled(ProcessActivityName, message, tmpActivity))
                 {
                     activity = tmpActivity;
-                    if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ProcessActivityStartName))
+                    if (DiagnosticListener.IsEnabled(ProcessActivityStartName))
                     {
                         DiagnosticListener.StartActivity(activity, new
                         {
                             Message = message,
-                            QueueName = this.queueName,
-                            ClientId = this.clientId,
+                            Entity = this.entityPath,
                             Endpoint = this.endpoint
                         });
                     }
@@ -115,8 +111,7 @@ namespace Microsoft.Azure.ServiceBus
                 DiagnosticListener.StopActivity(activity, new
                 {
                     Message = message,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
+                    Entity = this.entityPath,
                     Endpoint = this.endpoint,
                     Status = status ?? TaskStatus.Faulted
                 });
@@ -134,8 +129,7 @@ namespace Microsoft.Azure.ServiceBus
             {
                 Message = message,
                 ScheduleEnqueueTimeUtc = scheduleEnqueueTimeUtc,
-                QueueName = this.queueName,
-                ClientId = this.clientId,
+                Entity = this.entityPath,
                 Endpoint = this.endpoint
             });
 
@@ -152,8 +146,7 @@ namespace Microsoft.Azure.ServiceBus
                 {
                     Message = message,
                     ScheduleEnqueueTimeUtc = scheduleEnqueueTimeUtc,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
+                    Entity = this.entityPath,
                     Endpoint = this.endpoint,
                     SequenceNumber = sequenceNumber,
                     Status = status ?? TaskStatus.Faulted
@@ -171,8 +164,7 @@ namespace Microsoft.Azure.ServiceBus
             return Start("Cancel", () => new
             {
                 SequenceNumber = sequenceNumber,
-                QueueName = this.queueName,
-                ClientId = this.clientId,
+                Entity = this.entityPath,
                 Endpoint = this.endpoint
             });
         }
@@ -184,8 +176,7 @@ namespace Microsoft.Azure.ServiceBus
                 DiagnosticListener.StopActivity(activity, new
                 {
                     SequenceNumber = sequenceNumber,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
+                    Entity = this.entityPath,
                     Endpoint = this.endpoint,
                     Status = status ?? TaskStatus.Faulted
                 });
@@ -202,8 +193,7 @@ namespace Microsoft.Azure.ServiceBus
             return Start("Receive", () => new
             {
                 MessageCount = messageCount,
-                QueueName = this.queueName,
-                ClientId = this.clientId,
+                Entity = this.entityPath,
                 Endpoint = this.endpoint
             });
         }
@@ -212,11 +202,12 @@ namespace Microsoft.Azure.ServiceBus
         {
             if (activity != null)
             {
+                SetRelatedOperations(activity, messageList);
+
                 DiagnosticListener.StopActivity(activity, new
                 {
                     MessageCount = messageCount,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
+                    Entity = this.entityPath,
                     Endpoint = this.endpoint,
                     Status = status ?? TaskStatus.Faulted,
                     Messages = messageList
@@ -235,8 +226,7 @@ namespace Microsoft.Azure.ServiceBus
             {
                 FromSequenceNumber = fromSequenceNumber,
                 MessageCount = messageCount,
-                QueueName = this.queueName,
-                ClientId = this.clientId,
+                Entity = this.entityPath,
                 Endpoint = this.endpoint
             });
         }
@@ -245,12 +235,13 @@ namespace Microsoft.Azure.ServiceBus
         {
             if (activity != null)
             {
+                SetRelatedOperations(activity, messageList);
+
                 DiagnosticListener.StopActivity(activity, new
                 {
                     FromSequenceNumber = fromSequenceNumber,
-                    MmessageCount = messageCount,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
+                    MessageCount = messageCount,
+                    Entity = this.entityPath,
                     Endpoint = this.endpoint,
                     Status = status ?? TaskStatus.Faulted,
                     Messages = messageList
@@ -268,8 +259,7 @@ namespace Microsoft.Azure.ServiceBus
             return Start("ReceiveDeffered", () => new
             {
                 SequenceNumbers = sequenceNumbers,
-                QueueName = this.queueName,
-                ClientId = this.clientId,
+                Entity = this.entityPath,
                 Endpoint = this.endpoint
             });
         }
@@ -278,11 +268,12 @@ namespace Microsoft.Azure.ServiceBus
         {
             if (activity != null)
             {
+                SetRelatedOperations(activity, messageList);
+
                 DiagnosticListener.StopActivity(activity, new
                 {
                     SequenceNumbers = sequenceNumbers,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
+                    Entity = this.entityPath,
                     Endpoint = this.endpoint,
                     Messages = messageList,
                     Status = status ?? TaskStatus.Faulted
@@ -300,8 +291,7 @@ namespace Microsoft.Azure.ServiceBus
             return Start("Complete", () => new
             {
                 LockTokens = lockTokens,
-                QueueName = this.queueName,
-                ClientId = this.clientId,
+                Entity = this.entityPath,
                 Endpoint = this.endpoint
             });
         }
@@ -313,8 +303,7 @@ namespace Microsoft.Azure.ServiceBus
                 DiagnosticListener.StopActivity(activity, new
                 {
                     LockTokens = lockTokens,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
+                    Entity = this.entityPath,
                     Endpoint = this.endpoint,
                     Status = status ?? TaskStatus.Faulted
                 });
@@ -331,8 +320,7 @@ namespace Microsoft.Azure.ServiceBus
             return Start(operationName, () => new
             {
                 LockToken = lockToken,
-                QueueName = this.queueName,
-                ClientId = this.clientId,
+                Entity = this.entityPath,
                 Endpoint = this.endpoint
             });
         }
@@ -344,8 +332,7 @@ namespace Microsoft.Azure.ServiceBus
                 DiagnosticListener.StopActivity(activity, new
                 {
                     LockToken = lockToken,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
+                    Entity = this.entityPath,
                     Endpoint = this.endpoint,
                     Status = status ?? TaskStatus.Faulted
                 });
@@ -362,8 +349,7 @@ namespace Microsoft.Azure.ServiceBus
             return Start("RenewLock", () => new
             {
                 LockToken = lockToken,
-                QueueName = this.queueName,
-                ClientId = this.clientId,
+                Entity = this.entityPath,
                 Endpoint = this.endpoint
             });
         }
@@ -375,8 +361,7 @@ namespace Microsoft.Azure.ServiceBus
                 DiagnosticListener.StopActivity(activity, new
                 {
                     LockToken = lockToken,
-                    QueueName = this.queueName,
-                    ClientId = this.clientId,
+                    Entity = this.entityPath,
                     Endpoint = this.endpoint,
                     Status = status ?? TaskStatus.Faulted,
                     LockedUntilUtc = lockedUntilUtc
@@ -388,14 +373,13 @@ namespace Microsoft.Azure.ServiceBus
 
         internal void ReportException(Exception ex)
         {
-            if (DiagnosticListener.IsEnabled(DiagnosticsLoggingStrings.ExceptionEventName))
+            if (DiagnosticListener.IsEnabled(ExceptionEventName))
             {
-                DiagnosticListener.Write(DiagnosticsLoggingStrings.ExceptionEventName,
+                DiagnosticListener.Write(ExceptionEventName,
                     new
                     {
                         Exception = ex,
-                        QueueName = this.queueName,
-                        ClientId = this.clientId,
+                        Entity = this.entityPath,
                         Endpoint = this.endpoint
                     });
             }
@@ -404,8 +388,8 @@ namespace Microsoft.Azure.ServiceBus
         private Activity Start(string operationName, Func<object> getPayload)
         {
             Activity activity = null;
-            string activityName = DiagnosticsLoggingStrings.BaseActivityName + operationName;
-            if (DiagnosticListener.IsEnabled(activityName, queueName))
+            string activityName = BaseActivityName + operationName;
+            if (DiagnosticListener.IsEnabled(activityName, this.entityPath))
             {
                 activity = new Activity(activityName);
 
@@ -447,43 +431,28 @@ namespace Microsoft.Azure.ServiceBus
 
         private void Inject(Message message, string id, IList<KeyValuePair<string, string>> correlationContext)
         {
-            message.UserProperties[DiagnosticsLoggingStrings.RequestIdPropertyName] = id;
+            message.UserProperties[RequestIdPropertyName] = id;
             if (correlationContext.Any())
             {
-                message.UserProperties[DiagnosticsLoggingStrings.CorrelationContextPropertyName] = correlationContext;
+                message.UserProperties[CorrelationContextPropertyName] = correlationContext;
             }
         }
 
-        private bool TryExtract(Message message, Activity activity)
+        private void SetRelatedOperations(Activity activity, IList<Message> messageList)
         {
-            if (message.UserProperties.TryGetValue(DiagnosticsLoggingStrings.RequestIdPropertyName,
-                out object requestId))
+            if (messageList != null)
             {
-                var id = (string)requestId;
-                if (id == null)
+                string[] relatedTo = new string[messageList.Count];
+                for (int i = 0; i < messageList.Count; i++)
                 {
-                    return false;
-                }
-
-                activity.SetParentId(id);
-
-                if (message.UserProperties.TryGetValue(DiagnosticsLoggingStrings.CorrelationContextPropertyName,
-                    out object ctxObj))
-                {
-                    var ctx = (KeyValuePair<string, string>[])ctxObj;
-                    if (ctx != null)
+                    if (messageList[i].TryExtractId(out string id))
                     {
-                        foreach (var kvp in ctx)
-                        {
-                            activity.AddBaggage(kvp.Key, kvp.Value);
-                        }
+                        relatedTo[i] = id;
                     }
                 }
 
-                return true;
+                activity.AddTag(RelatedToTag, string.Join(",", relatedTo));
             }
-
-            return false;
         }
     }
 }

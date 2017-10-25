@@ -99,7 +99,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             this.SendLinkManager = new FaultTolerantAmqpObject<SendingAmqpLink>(this.CreateLinkAsync, CloseSession);
             this.RequestResponseLinkManager = new FaultTolerantAmqpObject<RequestResponseAmqpLink>(this.CreateRequestResponseLinkAsync, CloseRequestResponseSession);
             this.clientLinkManager = new ActiveClientLinkManager(this.ClientId, this.CbsTokenProvider);
-            this.diagnosticSource = new ServiceBusDiagnosticsSource(entityPath, serviceBusConnection.Endpoint.ToString(), this.ClientId);
+            this.diagnosticSource = new ServiceBusDiagnosticsSource(entityPath, serviceBusConnection.Endpoint);
 
             MessagingEventSource.Log.MessageSenderCreateStop(serviceBusConnection.Endpoint.Authority, entityPath, this.ClientId);
         }
@@ -161,8 +161,7 @@ namespace Microsoft.Azure.ServiceBus.Core
                 var processedMessages = await this.ProcessMessages(messageList).ConfigureAwait(false);
 
                 sendTask = this.RetryPolicy.RunOperation(() => this.OnSendAsync(processedMessages), this.OperationTimeout);
-                await sendTask
-                    .ConfigureAwait(false);
+                await sendTask.ConfigureAwait(false);
             }
             catch (Exception exception)
             {
