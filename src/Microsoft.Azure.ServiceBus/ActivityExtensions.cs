@@ -35,16 +35,11 @@ namespace System.Diagnostics
             {
                 activity.SetParentId(id);
 
-                if (message.UserProperties.TryGetValue(ServiceBusDiagnosticsSource.CorrelationContextPropertyName,
-                    out object ctxObj))
+                if (message.TryExtractContext(out KeyValuePair<string, string>[] ctx))
                 {
-                    var ctx = (KeyValuePair<string, string>[])ctxObj;
-                    if (ctx != null)
+                    foreach (var kvp in ctx)
                     {
-                        foreach (var kvp in ctx)
-                        {
-                            activity.AddBaggage(kvp.Key, kvp.Value);
-                        }
+                        activity.AddBaggage(kvp.Key, kvp.Value);
                     }
                 }
             }
@@ -63,6 +58,40 @@ namespace System.Diagnostics
                 {
                     return true;
                 }
+            }
+
+            return false;
+        }
+
+        internal static bool TryExtractContext(this Message message, out KeyValuePair<string, string>[] context)
+        {
+            context = null;
+            if (message.UserProperties.TryGetValue(ServiceBusDiagnosticsSource.CorrelationContextPropertyName,
+                out object ctxObj))
+            {
+                string ctxStr = ctxObj as string;
+                if (ctxStr == null)
+                {
+                    return false;
+                }
+
+                var ctxList = ctxStr.Split(',');
+                if (ctxList.Length == 0)
+                {
+                    return false;
+                }
+
+                context = new KeyValuePair<string,string>[ctxList.Length];
+                for (int i = 0; i < ctxList.Length; i ++)
+                {
+                    var kvp = ctxList[i].Split('=');
+                    if (kvp.Length == 2)
+                    {
+                        context[i] = new KeyValuePair<string,string>(kvp[0],kvp[1]);
+                    }
+                }
+
+                return true;
             }
 
             return false;

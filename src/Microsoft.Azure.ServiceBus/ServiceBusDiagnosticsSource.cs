@@ -1,6 +1,8 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using System.Collections;
+
 namespace Microsoft.Azure.ServiceBus
 {
     using System;
@@ -411,7 +413,7 @@ namespace Microsoft.Azure.ServiceBus
             var currentActivity = Activity.Current;
             if (currentActivity != null)
             {
-                var correlationContext = currentActivity.Baggage.ToArray();
+                var correlationContext = SerializeCorrelationContext(currentActivity.Baggage.ToList());
 
                 foreach (var message in messageList)
                 {
@@ -425,17 +427,26 @@ namespace Microsoft.Azure.ServiceBus
             var currentActivity = Activity.Current;
             if (currentActivity != null)
             {
-                Inject(message, currentActivity.Id, currentActivity.Baggage.ToArray());
+                Inject(message, currentActivity.Id, SerializeCorrelationContext(currentActivity.Baggage.ToList()));
             }
         }
 
-        private void Inject(Message message, string id, IList<KeyValuePair<string, string>> correlationContext)
+        private void Inject(Message message, string id, string correlationContext)
         {
             message.UserProperties[RequestIdPropertyName] = id;
-            if (correlationContext.Any())
+            if (correlationContext != null)
             {
                 message.UserProperties[CorrelationContextPropertyName] = correlationContext;
             }
+        }
+
+        private string SerializeCorrelationContext(IList<KeyValuePair<string,string>> baggage)
+        {
+            if (baggage.Any())
+            {
+                return string.Join(",", baggage.Select(kvp => kvp.Key + "=" + kvp.Value));
+            }
+            return null;
         }
 
         private void SetRelatedOperations(Activity activity, IList<Message> messageList)
