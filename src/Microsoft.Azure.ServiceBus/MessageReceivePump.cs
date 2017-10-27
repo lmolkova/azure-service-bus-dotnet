@@ -99,7 +99,7 @@ namespace Microsoft.Azure.ServiceBus
 
         async Task MessageDispatchTaskInstrumented(Message message)
         {
-            Activity activity = diagnosticSource.ProcessStart(message);
+            Activity activity = this.diagnosticSource.ProcessStart(message);
             Task processTask = null;
             try
             {
@@ -108,12 +108,12 @@ namespace Microsoft.Azure.ServiceBus
             }
             catch (Exception e)
             {
-                diagnosticSource.ReportException(e);
+                this.diagnosticSource.ReportException(e);
                 throw;
             }
             finally
             {
-                diagnosticSource.ProcessStop(activity, message, processTask?.Status);
+                this.diagnosticSource.ProcessStop(activity, message, processTask?.Status);
             }
         }
 
@@ -153,7 +153,7 @@ namespace Microsoft.Azure.ServiceBus
 
                 if (ServiceBusDiagnosticSource.IsEnabled())
                 {
-                    diagnosticSource.ReportException(exception);
+                    this.diagnosticSource.ReportException(exception);
                 }
                 // AbandonMessageIfNeededAsync should take care of not throwing exception
                 this.maxConcurrentCallsSemaphoreSlim.Release();

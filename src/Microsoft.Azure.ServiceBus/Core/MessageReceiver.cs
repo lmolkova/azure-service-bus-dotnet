@@ -50,7 +50,7 @@ namespace Microsoft.Azure.ServiceBus.Core
         readonly object messageReceivePumpSyncLock;
         readonly bool ownsConnection;
         readonly ActiveClientLinkManager clientLinkManager;
-        readonly ServiceBusDiagnosticsSource diagnosticSource;
+        readonly ServiceBusDiagnosticSource diagnosticSource;
 
         int prefetchCount;
         long lastPeekedSequenceNumber;
@@ -135,7 +135,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             this.PrefetchCount = prefetchCount;
             this.messageReceivePumpSyncLock = new object();
             this.clientLinkManager = new ActiveClientLinkManager(this.ClientId, this.CbsTokenProvider);
-            this.diagnosticSource = new ServiceBusDiagnosticsSource(entityPath, serviceBusConnection.Endpoint);
+            this.diagnosticSource = new ServiceBusDiagnosticSource(entityPath, serviceBusConnection.Endpoint);
             MessagingEventSource.Log.MessageReceiverCreateStop(serviceBusConnection.Endpoint.Authority, entityPath, this.ClientId);
         }
 
@@ -301,8 +301,8 @@ namespace Microsoft.Azure.ServiceBus.Core
 
             MessagingEventSource.Log.MessageReceiveStart(this.ClientId, maxMessageCount);
 
-            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.ReceiveStart(maxMessageCount) : null;
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.ReceiveStart(maxMessageCount) : null;
             Task receiveTask = null;
 
             IList<Message> unprocessedMessageList = null;
@@ -332,13 +332,13 @@ namespace Microsoft.Azure.ServiceBus.Core
                 MessagingEventSource.Log.MessageReceiveException(this.ClientId, exception);
                 if (isDiagnosticsEnabled)
                 {
-                    diagnosticSource.ReportException(exception);
+                    this.diagnosticSource.ReportException(exception);
                 }
                 throw;
             }
             finally
             {
-                diagnosticSource.ReceiveStop(activity, maxMessageCount, receiveTask?.Status, processedMessageList);
+                this.diagnosticSource.ReceiveStop(activity, maxMessageCount, receiveTask?.Status, processedMessageList);
             }
 
             return processedMessageList;
@@ -386,8 +386,8 @@ namespace Microsoft.Azure.ServiceBus.Core
 
             MessagingEventSource.Log.MessageReceiveDeferredMessageStart(this.ClientId, sequenceNumberList.Length, sequenceNumberList);
 
-            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.ReceiveDefferedStart(sequenceNumberList) : null;
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.ReceiveDefferedStart(sequenceNumberList) : null;
             Task receiveTask = null;
 
             IList<Message> messages = null;
@@ -405,13 +405,13 @@ namespace Microsoft.Azure.ServiceBus.Core
                 MessagingEventSource.Log.MessageReceiveDeferredMessageException(this.ClientId, exception);
                 if (isDiagnosticsEnabled)
                 {
-                    diagnosticSource.ReportException(exception);
+                    this.diagnosticSource.ReportException(exception);
                 }
                 throw;
             }
             finally
             {
-                diagnosticSource.ReceiveDefferedStop(activity, sequenceNumberList, receiveTask?.Status, messages);
+                this.diagnosticSource.ReceiveDefferedStop(activity, sequenceNumberList, receiveTask?.Status, messages);
             }
             MessagingEventSource.Log.MessageReceiveDeferredMessageStop(this.ClientId, messages?.Count ?? 0);
 
@@ -456,8 +456,8 @@ namespace Microsoft.Azure.ServiceBus.Core
             }
 
             MessagingEventSource.Log.MessageCompleteStart(this.ClientId, lockTokenList.Count, lockTokenList);
-            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.CompleteStart(lockTokenList) : null;
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.CompleteStart(lockTokenList) : null;
             Task completeTask = null;
 
             try
@@ -471,14 +471,14 @@ namespace Microsoft.Azure.ServiceBus.Core
                 MessagingEventSource.Log.MessageCompleteException(this.ClientId, exception);
                 if (isDiagnosticsEnabled)
                 {
-                    diagnosticSource.ReportException(exception);
+                    this.diagnosticSource.ReportException(exception);
                 }
 
                 throw;
             }
             finally
             {
-                diagnosticSource.CompleteStop(activity, lockTokenList, completeTask?.Status);
+                this.diagnosticSource.CompleteStop(activity, lockTokenList, completeTask?.Status);
             }
 
             MessagingEventSource.Log.MessageCompleteStop(this.ClientId);
@@ -500,8 +500,8 @@ namespace Microsoft.Azure.ServiceBus.Core
             this.ThrowIfNotPeekLockMode();
 
             MessagingEventSource.Log.MessageAbandonStart(this.ClientId, 1, lockToken);
-            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.DisposeStart("Abandon", lockToken) : null;
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.DisposeStart("Abandon", lockToken) : null;
             Task abandonTask = null;
 
             try
@@ -515,13 +515,13 @@ namespace Microsoft.Azure.ServiceBus.Core
                 MessagingEventSource.Log.MessageAbandonException(this.ClientId, exception);
                 if (isDiagnosticsEnabled)
                 {
-                    diagnosticSource.ReportException(exception);
+                    this.diagnosticSource.ReportException(exception);
                 }
                 throw;
             }
             finally
             {
-                diagnosticSource.DisposeStop(activity, lockToken, abandonTask?.Status);
+                this.diagnosticSource.DisposeStop(activity, lockToken, abandonTask?.Status);
             }
 
 
@@ -545,8 +545,8 @@ namespace Microsoft.Azure.ServiceBus.Core
             this.ThrowIfNotPeekLockMode();
 
             MessagingEventSource.Log.MessageDeferStart(this.ClientId, 1, lockToken);
-            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.DisposeStart("Defer", lockToken) : null;
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.DisposeStart("Defer", lockToken) : null;
             Task deferTask = null;
 
             try
@@ -560,13 +560,13 @@ namespace Microsoft.Azure.ServiceBus.Core
                 MessagingEventSource.Log.MessageDeferException(this.ClientId, exception);
                 if (isDiagnosticsEnabled)
                 {
-                    diagnosticSource.ReportException(exception);
+                    this.diagnosticSource.ReportException(exception);
                 }
                 throw;
             }
             finally
             {
-                diagnosticSource.DisposeStop(activity, lockToken, deferTask?.Status);
+                this.diagnosticSource.DisposeStop(activity, lockToken, deferTask?.Status);
             }
             MessagingEventSource.Log.MessageDeferStop(this.ClientId);
         }
@@ -589,8 +589,8 @@ namespace Microsoft.Azure.ServiceBus.Core
             this.ThrowIfNotPeekLockMode();
 
             MessagingEventSource.Log.MessageDeadLetterStart(this.ClientId, 1, lockToken);
-            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.DisposeStart("DeadLetter", lockToken) : null;
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.DisposeStart("DeadLetter", lockToken) : null;
             Task deadLetterTask = null;
 
             try
@@ -604,13 +604,13 @@ namespace Microsoft.Azure.ServiceBus.Core
                 MessagingEventSource.Log.MessageDeadLetterException(this.ClientId, exception);
                 if (isDiagnosticsEnabled)
                 {
-                    diagnosticSource.ReportException(exception);
+                    this.diagnosticSource.ReportException(exception);
                 }
                 throw;
             }
             finally
             {
-                diagnosticSource.DisposeStop(activity, lockToken, deadLetterTask?.Status);
+                this.diagnosticSource.DisposeStop(activity, lockToken, deadLetterTask?.Status);
             }
             MessagingEventSource.Log.MessageDeadLetterStop(this.ClientId);
         }
@@ -634,8 +634,8 @@ namespace Microsoft.Azure.ServiceBus.Core
             this.ThrowIfNotPeekLockMode();
 
             MessagingEventSource.Log.MessageDeadLetterStart(this.ClientId, 1, lockToken);
-            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.DisposeStart("DeadLetter", lockToken) : null;
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.DisposeStart("DeadLetter", lockToken) : null;
             Task deadLetterTask = null;
 
             try
@@ -651,13 +651,13 @@ namespace Microsoft.Azure.ServiceBus.Core
                 MessagingEventSource.Log.MessageDeadLetterException(this.ClientId, exception);
                 if (isDiagnosticsEnabled)
                 {
-                    diagnosticSource.ReportException(exception);
+                    this.diagnosticSource.ReportException(exception);
                 }
                 throw;
             }
             finally
             {
-                diagnosticSource.DisposeStop(activity, lockToken, deadLetterTask?.Status);
+                this.diagnosticSource.DisposeStop(activity, lockToken, deadLetterTask?.Status);
             }
 
             MessagingEventSource.Log.MessageDeadLetterStop(this.ClientId);
@@ -694,8 +694,8 @@ namespace Microsoft.Azure.ServiceBus.Core
             this.ThrowIfNotPeekLockMode();
 
             MessagingEventSource.Log.MessageRenewLockStart(this.ClientId, 1, lockToken);
-            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.RenewLockStart(lockToken) : null;
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.RenewLockStart(lockToken) : null;
             Task renewTask = null;
 
             var lockedUntilUtc = DateTime.MinValue;
@@ -712,13 +712,13 @@ namespace Microsoft.Azure.ServiceBus.Core
                 MessagingEventSource.Log.MessageRenewLockException(this.ClientId, exception);
                 if (isDiagnosticsEnabled)
                 {
-                    diagnosticSource.ReportException(exception);
+                    this.diagnosticSource.ReportException(exception);
                 }
                 throw;
             }
             finally
             {
-                diagnosticSource.RenewLockStop(activity, lockToken, renewTask?.Status, lockedUntilUtc);
+                this.diagnosticSource.RenewLockStop(activity, lockToken, renewTask?.Status, lockedUntilUtc);
             }
             MessagingEventSource.Log.MessageRenewLockStop(this.ClientId);
 
@@ -776,8 +776,8 @@ namespace Microsoft.Azure.ServiceBus.Core
             IList<Message> messages = null;
 
             MessagingEventSource.Log.MessagePeekStart(this.ClientId, fromSequenceNumber, messageCount);
-            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.PeekStart(fromSequenceNumber, messageCount) : null;
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.PeekStart(fromSequenceNumber, messageCount) : null;
             Task peekTask = null;
 
             try
@@ -795,13 +795,13 @@ namespace Microsoft.Azure.ServiceBus.Core
                 MessagingEventSource.Log.MessagePeekException(this.ClientId, exception);
                 if (isDiagnosticsEnabled)
                 {
-                    diagnosticSource.ReportException(exception);
+                    this.diagnosticSource.ReportException(exception);
                 }
                 throw;
             }
             finally
             {
-                diagnosticSource.PeekStop(activity, fromSequenceNumber, messageCount, peekTask?.Status, messages);
+                this.diagnosticSource.PeekStop(activity, fromSequenceNumber, messageCount, peekTask?.Status, messages);
             }
 
             MessagingEventSource.Log.MessagePeekStop(this.ClientId, messages?.Count ?? 0);

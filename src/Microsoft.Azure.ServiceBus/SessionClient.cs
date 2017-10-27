@@ -47,7 +47,7 @@ namespace Microsoft.Azure.ServiceBus
     {
         const int DefaultPrefetchCount = 0;
         readonly bool ownsConnection;
-        readonly ServiceBusDiagnosticsSource diagnosticSource;
+        readonly ServiceBusDiagnosticSource diagnosticSource;
 
         /// <summary>
         /// Creates a new SessionClient from a <see cref="ServiceBusConnectionStringBuilder"/>
@@ -126,7 +126,7 @@ namespace Microsoft.Azure.ServiceBus
             this.ReceiveMode = receiveMode;
             this.PrefetchCount = prefetchCount;
             this.CbsTokenProvider = cbsTokenProvider;
-            this.diagnosticSource = new ServiceBusDiagnosticsSource(entityPath, serviceBusConnection.Endpoint);
+            this.diagnosticSource = new ServiceBusDiagnosticSource(entityPath, serviceBusConnection.Endpoint);
 
             // Register plugins on the message session.
             if (registeredPlugins != null)
@@ -217,10 +217,9 @@ namespace Microsoft.Azure.ServiceBus
                 this.PrefetchCount,
                 sessionId);
 
-            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
             Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.AcceptMessageSessionStart(sessionId, serverWaitTime) : null;
             Task acceptMessageSessionTask = null;
-
 
             var session = new MessageSession(
                 this.EntityPath,

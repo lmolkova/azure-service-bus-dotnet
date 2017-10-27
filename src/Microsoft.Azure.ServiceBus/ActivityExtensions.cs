@@ -1,35 +1,31 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-namespace System.Diagnostics
-{
-    using System.Collections.Generic;
-    using Microsoft.Azure.ServiceBus;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 
-    public static class ActivityExtensions
+namespace Microsoft.Azure.ServiceBus
+{
+    public static class MessageExtensions
     {
         /// <summary>
         /// Gets trace context from <see cref="Message"/> and stores it in <see cref="Activity"/>
         /// </summary>
-        /// <param name="message">Message to extract trace context from</param>
-        /// <param name="activity">Activity to be updated with trace context, Activity must be created by the caller and must not be started yet.</param>
-        /// <returns>Activity for convenient chaining</returns>
-        public static Activity ExtractFrom(this Activity activity, Message message)
+        /// <returns>Activity containing trace context</returns>
+        public static Activity ExtractActivity(this Message message, string activityName = null)
         {
             if (message == null)
             {
                 throw new ArgumentNullException(nameof(message));
             }
 
-            if (activity == null)
+            if (activityName == null)
             {
-                throw new ArgumentNullException(nameof(activity));
+                activityName = ServiceBusDiagnosticSource.ProcessActivityName;
             }
 
-            if (activity.Id != null)
-            {
-                throw new ArgumentException("Cannot update Activity that has beed started");
-            }
+            var activity = new Activity(activityName);
 
             if (TryExtractId(message, out string id))
             {
@@ -50,7 +46,7 @@ namespace System.Diagnostics
         internal static bool TryExtractId(this Message message, out string id)
         {
             id = null;
-            if (message.UserProperties.TryGetValue(ServiceBusDiagnosticsSource.RequestIdPropertyName,
+            if (message.UserProperties.TryGetValue(ServiceBusDiagnosticSource.RequestIdPropertyName,
                 out object requestId))
             {
                 id = requestId as string;
@@ -66,7 +62,7 @@ namespace System.Diagnostics
         internal static bool TryExtractContext(this Message message, out KeyValuePair<string, string>[] context)
         {
             context = null;
-            if (message.UserProperties.TryGetValue(ServiceBusDiagnosticsSource.CorrelationContextPropertyName,
+            if (message.UserProperties.TryGetValue(ServiceBusDiagnosticSource.CorrelationContextPropertyName,
                 out object ctxObj))
             {
                 string ctxStr = ctxObj as string;

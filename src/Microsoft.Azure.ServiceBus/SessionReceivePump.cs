@@ -1,6 +1,8 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using System.Diagnostics;
+
 namespace Microsoft.Azure.ServiceBus
 {
     using System;
@@ -209,36 +211,55 @@ namespace Microsoft.Azure.ServiceBus
                         break;
                     }
 
-                    // Set the timer
-                    userCallbackTimer.Change(this.sessionHandlerOptions.MaxAutoRenewDuration, TimeSpan.FromMilliseconds(-1));
-                    var callbackExceptionOccurred = false;
+                    bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+                    Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.ProcessSessionStart(session, message) : null;
+                    Task processTask = null;
+
                     try
                     {
-                        await this.userOnSessionCallback(session, message, this.pumpCancellationToken).ConfigureAwait(false);
-                    }
-                    catch (Exception exception)
-                    {
-                        MessagingEventSource.Log.MessageReceivePumpTaskException(this.clientId, session.SessionId, exception);
-                        await this.RaiseExceptionReceived(exception, ExceptionReceivedEventArgsAction.UserCallback).ConfigureAwait(false);
-                        callbackExceptionOccurred = true;
-                        if (!(exception is MessageLockLostException || exception is SessionLockLostException))
+                        // Set the timer
+                        userCallbackTimer.Change(this.sessionHandlerOptions.MaxAutoRenewDuration,
+                            TimeSpan.FromMilliseconds(-1));
+                        var callbackExceptionOccurred = false;
+                        try
                         {
-                            await this.AbandonMessageIfNeededAsync(session, message).ConfigureAwait(false);
+                            processTask = this.userOnSessionCallback(session, message, this.pumpCancellationToken);
+                            await processTask.ConfigureAwait(false);
+                        }
+                        catch (Exception exception)
+                        {
+                            MessagingEventSource.Log.MessageReceivePumpTaskException(this.clientId, session.SessionId,
+                                exception);
+                            if (isDiagnosticsEnabled)
+                            {
+                                this.diagnosticSource.ReportException(exception);
+                            }
+                            await this.RaiseExceptionReceived(exception, ExceptionReceivedEventArgsAction.UserCallback)
+                                .ConfigureAwait(false);
+                            callbackExceptionOccurred = true;
+                            if (!(exception is MessageLockLostException || exception is SessionLockLostException))
+                            {
+                                await this.AbandonMessageIfNeededAsync(session, message).ConfigureAwait(false);
+                            }
+                        }
+                        finally
+                        {
+                            userCallbackTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                        }
+
+                        if (!callbackExceptionOccurred)
+                        {
+                            await this.CompleteMessageIfNeededAsync(session, message).ConfigureAwait(false);
+                        }
+                        else if (session.IsClosedOrClosing)
+                        {
+                            // If User closed the session as part of the callback, break out of the loop
+                            break;
                         }
                     }
                     finally
                     {
-                        userCallbackTimer.Change(Timeout.Infinite, Timeout.Infinite);
-                    }
-
-                    if (!callbackExceptionOccurred)
-                    {
-                        await this.CompleteMessageIfNeededAsync(session, message).ConfigureAwait(false);
-                    }
-                    else if (session.IsClosedOrClosing)
-                    {
-                        // If User closed the session as part of the callback, break out of the loop
-                        break;
+                        this.diagnosticSource.ProcessSessionStop(activity, session, message, processTask?.Status);
                     }
                 }
             }
