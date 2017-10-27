@@ -457,7 +457,7 @@ namespace Microsoft.Azure.ServiceBus.Core
 
             MessagingEventSource.Log.MessageCompleteStart(this.ClientId, lockTokenList.Count, lockTokenList);
             bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.CompleteStart(lockTokenList, null) : null;
+            Activity activity = isDiagnosticsEnabled ? diagnosticSource.CompleteStart(lockTokenList) : null;
             Task completeTask = null;
 
             try
@@ -478,7 +478,7 @@ namespace Microsoft.Azure.ServiceBus.Core
             }
             finally
             {
-                diagnosticSource.CompleteStop(activity, lockTokenList, null, completeTask?.Status);
+                diagnosticSource.CompleteStop(activity, lockTokenList, completeTask?.Status);
             }
 
             MessagingEventSource.Log.MessageCompleteStop(this.ClientId);

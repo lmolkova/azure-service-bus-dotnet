@@ -281,7 +281,7 @@ namespace Microsoft.Azure.ServiceBus
                                 this.ClientId,
                                 this.ReceiveMode,
                                 this.SessionClient,
-                                this.ServiceBusConnection.Endpoint.Authority);
+                                this.ServiceBusConnection.Endpoint);
                         }
                     }
                 }

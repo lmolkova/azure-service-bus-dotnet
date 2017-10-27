@@ -1,8 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using System.Collections;
-
 namespace Microsoft.Azure.ServiceBus
 {
     using System;
@@ -11,7 +9,7 @@ namespace Microsoft.Azure.ServiceBus
     using System.Linq;
     using System.Threading.Tasks;
 
-    internal class ServiceBusDiagnosticsSource
+    internal class ServiceBusDiagnosticSource
     {
         public const string DiagnosticListenerName = "Microsoft.Azure.ServiceBus";
 
@@ -29,7 +27,7 @@ namespace Microsoft.Azure.ServiceBus
         private readonly string entityPath;
         private readonly Uri endpoint;
 
-        public ServiceBusDiagnosticsSource(string entityPath, Uri endpoint)
+        public ServiceBusDiagnosticSource(string entityPath, Uri endpoint)
         {
             this.entityPath = entityPath;
             this.endpoint = endpoint;
@@ -288,7 +286,7 @@ namespace Microsoft.Azure.ServiceBus
 
         #region  Complete
 
-        internal Activity CompleteStart(IList<string> lockTokens, IDictionary<string, object> propertiesToModify)
+        internal Activity CompleteStart(IList<string> lockTokens)
         {
             return Start("Complete", () => new
             {
@@ -298,7 +296,7 @@ namespace Microsoft.Azure.ServiceBus
             });
         }
 
-        internal void CompleteStop(Activity activity, IList<string> lockTokens, IDictionary<string, object> propertiesToModify, TaskStatus? status)
+        internal void CompleteStop(Activity activity, IList<string> lockTokens, TaskStatus? status)
         {
             if (activity != null)
             {
@@ -367,6 +365,211 @@ namespace Microsoft.Azure.ServiceBus
                     Endpoint = this.endpoint,
                     Status = status ?? TaskStatus.Faulted,
                     LockedUntilUtc = lockedUntilUtc
+                });
+            }
+        }
+
+        #endregion
+
+
+        #region AddRule
+
+        internal Activity AddRuleStart(RuleDescription description)
+        {
+            return Start("AddRule", () => new
+            {
+                Description = description,
+                Entity = this.entityPath,
+                Endpoint = this.endpoint
+            });
+        }
+
+        internal void AddRuleStop(Activity activity, RuleDescription description, TaskStatus? status)
+        {
+            if (activity != null)
+            {
+                DiagnosticListener.StopActivity(activity, new
+                {
+                    Description = description,
+                    Entity = this.entityPath,
+                    Endpoint = this.endpoint,
+                    Status = status ?? TaskStatus.Faulted
+                });
+            }
+        }
+
+        #endregion
+
+
+        #region RemoveRule
+
+        internal Activity RemoveRuleStart(string ruleName)
+        {
+            return Start("RemoveRule", () => new
+            {
+                RuleName = ruleName,
+                Entity = this.entityPath,
+                Endpoint = this.endpoint
+            });
+        }
+
+        internal void RemoveRuleStop(Activity activity, string ruleName, TaskStatus? status)
+        {
+            if (activity != null)
+            {
+                DiagnosticListener.StopActivity(activity, new
+                {
+                    RuleName = ruleName,
+                    Entity = this.entityPath,
+                    Endpoint = this.endpoint,
+                    Status = status ?? TaskStatus.Faulted
+                });
+            }
+        }
+
+        #endregion
+
+
+        #region GetRules
+
+        internal Activity GetRulesStart()
+        {
+            return Start("GetRules", () => new
+            {
+                Entity = this.entityPath,
+                Endpoint = this.endpoint
+            });
+        }
+
+        internal void GetRulesStop(Activity activity, IEnumerable<RuleDescription> rules, TaskStatus? status)
+        {
+            if (activity != null)
+            {
+                DiagnosticListener.StopActivity(activity, new
+                {
+                    Rules = rules,
+                    Entity = this.entityPath,
+                    Endpoint = this.endpoint,
+                    Status = status ?? TaskStatus.Faulted
+                });
+            }
+        }
+
+        #endregion
+
+
+        #region AcceptMessageSession
+
+        internal Activity AcceptMessageSessionStart(string sessionId, TimeSpan serverWaitTime)
+        {
+            return Start("AcceptMessageSession", () => new
+            {
+                SessionId = sessionId,
+                ServerWaitTime = serverWaitTime,
+                Entity = this.entityPath,
+                Endpoint = this.endpoint
+            });
+        }
+
+        internal void AcceptMessageSessionStop(Activity activity, string sessionId, TimeSpan serverWaitTime, IMessageSession session, TaskStatus? status)
+        {
+            if (activity != null)
+            {
+                DiagnosticListener.StopActivity(activity, new
+                {
+                    SessionId = sessionId,
+                    ServerWaitTime = serverWaitTime,
+                    Entity = this.entityPath,
+                    Endpoint = this.endpoint,
+                    Status = status ?? TaskStatus.Faulted,
+                    Session = session
+                });
+            }
+        }
+
+        #endregion
+
+
+        #region GetsessionStateAsync
+
+        internal Activity GetSessionStateStart(string sessionId)
+        {
+            return Start("GetSessionState", () => new
+            {
+                SessionId = sessionId,
+                Entity = this.entityPath,
+                Endpoint = this.endpoint
+            });
+        }
+
+        internal void GetSessionStateStop(Activity activity, string sessionId, byte[] state, TaskStatus? status)
+        {
+            if (activity != null)
+            {
+                DiagnosticListener.StopActivity(activity, new
+                {
+                    SessionId = sessionId,
+                    Entity = this.entityPath,
+                    Endpoint = this.endpoint,
+                    Status = status ?? TaskStatus.Faulted,
+                    State = state
+                });
+            }
+        }
+
+        #endregion
+
+        #region SetSessionState
+
+        internal Activity SetSessionStateStart(string sessionId, byte[] state)
+        {
+            return Start("SetSessionState", () => new
+            {
+                State = state,
+                SessionId = sessionId,
+                Entity = this.entityPath,
+                Endpoint = this.endpoint
+            });
+        }
+
+        internal void SetSessionStateStop(Activity activity, string sessionId, TaskStatus? status)
+        {
+            if (activity != null)
+            {
+                DiagnosticListener.StopActivity(activity, new
+                {
+                    SessionId = sessionId,
+                    Entity = this.entityPath,
+                    Endpoint = this.endpoint,
+                    Status = status ?? TaskStatus.Faulted
+                });
+            }
+        }
+
+        #endregion
+
+        #region RenewSessionLock
+
+        internal Activity RenewSessionLockStart(string sessionId)
+        {
+            return Start("RenewSessionLock", () => new
+            {
+                SessionId = sessionId,
+                Entity = this.entityPath,
+                Endpoint = this.endpoint
+            });
+        }
+
+        internal void RenewSessionLockStop(Activity activity, string sessionId, TaskStatus? status)
+        {
+            if (activity != null)
+            {
+                DiagnosticListener.StopActivity(activity, new
+                {
+                    SessionId = sessionId,
+                    Entity = this.entityPath,
+                    Endpoint = this.endpoint,
+                    Status = status ?? TaskStatus.Faulted
                 });
             }
         }

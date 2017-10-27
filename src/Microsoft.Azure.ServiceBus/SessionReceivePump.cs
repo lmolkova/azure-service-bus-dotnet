@@ -19,13 +19,14 @@ namespace Microsoft.Azure.ServiceBus
         readonly CancellationToken pumpCancellationToken;
         readonly SemaphoreSlim maxConcurrentSessionsSemaphoreSlim;
         readonly SemaphoreSlim maxPendingAcceptSessionsSemaphoreSlim;
+        private readonly ServiceBusDiagnosticSource diagnosticSource;
 
         public SessionReceivePump(string clientId,
             ISessionClient client,
             ReceiveMode receiveMode,
             SessionHandlerOptions sessionHandlerOptions,
             Func<IMessageSession, Message, CancellationToken, Task> callback,
-            string endpoint,
+            Uri endpoint,
             CancellationToken token)
         {
             this.client = client ?? throw new ArgumentException(nameof(client));
@@ -33,11 +34,12 @@ namespace Microsoft.Azure.ServiceBus
             this.ReceiveMode = receiveMode;
             this.sessionHandlerOptions = sessionHandlerOptions;
             this.userOnSessionCallback = callback;
-            this.endpoint = endpoint;
+            this.endpoint = endpoint.Authority;
             this.entityPath = client.EntityPath;
             this.pumpCancellationToken = token;
             this.maxConcurrentSessionsSemaphoreSlim = new SemaphoreSlim(this.sessionHandlerOptions.MaxConcurrentSessions);
             this.maxPendingAcceptSessionsSemaphoreSlim = new SemaphoreSlim(this.sessionHandlerOptions.MaxConcurrentAcceptSessionCalls);
+            this.diagnosticSource = new ServiceBusDiagnosticSource(client.EntityPath, endpoint);
         }
 
         ReceiveMode ReceiveMode { get; }

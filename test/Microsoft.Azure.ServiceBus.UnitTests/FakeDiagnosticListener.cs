@@ -4,8 +4,9 @@ using System.Diagnostics;
 
 namespace Microsoft.Azure.ServiceBus.UnitTests
 {
-    public sealed class FakeDiagnosticListener : IObserver<DiagnosticListener>
+    public sealed class FakeDiagnosticListener : IObserver<DiagnosticListener>, IDisposable
     {
+        private  IDisposable subscription;
         private class FakeDiagnosticSourceWriteObserver : IObserver<KeyValuePair<string, object>>
         {
             private readonly Action<KeyValuePair<string, object>> _writeCallback;
@@ -50,7 +51,7 @@ namespace Microsoft.Azure.ServiceBus.UnitTests
         {
             if (value.Name.Equals("Microsoft.Azure.ServiceBus"))
             {
-                value.Subscribe(new FakeDiagnosticSourceWriteObserver(_writeCallback), IsEnabled);
+                subscription = value.Subscribe(new FakeDiagnosticSourceWriteObserver(_writeCallback), IsEnabled);
             }
         }
 
@@ -77,6 +78,11 @@ namespace Microsoft.Azure.ServiceBus.UnitTests
         private bool IsEnabled(string s, object arg1, object arg2)
         {
             return _writeObserverEnabled.Invoke(s, arg1, arg2);
+        }
+
+        public void Dispose()
+        {
+            subscription?.Dispose();
         }
     }
 }

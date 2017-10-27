@@ -18,7 +18,7 @@ namespace Microsoft.Azure.ServiceBus
         readonly IMessageReceiver messageReceiver;
         readonly CancellationToken pumpCancellationToken;
         readonly SemaphoreSlim maxConcurrentCallsSemaphoreSlim;
-        readonly ServiceBusDiagnosticsSource diagnosticSource;
+        readonly ServiceBusDiagnosticSource diagnosticSource;
 
         public MessageReceivePump(IMessageReceiver messageReceiver,
             MessageHandlerOptions registerHandlerOptions,
@@ -32,7 +32,7 @@ namespace Microsoft.Azure.ServiceBus
             this.endpoint = endpoint.Authority;
             this.pumpCancellationToken = pumpCancellationToken;
             this.maxConcurrentCallsSemaphoreSlim = new SemaphoreSlim(this.registerHandlerOptions.MaxConcurrentCalls);
-            this.diagnosticSource = new ServiceBusDiagnosticsSource(messageReceiver.Path, endpoint);
+            this.diagnosticSource = new ServiceBusDiagnosticSource(messageReceiver.Path, endpoint);
         }
 
         public void StartPump()
@@ -66,7 +66,18 @@ namespace Microsoft.Azure.ServiceBus
                     if (message != null)
                     {
                         MessagingEventSource.Log.MessageReceiverPumpTaskStart(this.messageReceiver.ClientId, message, this.maxConcurrentCallsSemaphoreSlim.CurrentCount);
-                        TaskExtensionHelper.Schedule(() => this.MessageDispatchTask(message));
+
+                        TaskExtensionHelper.Schedule(() =>
+                        {
+                            if (ServiceBusDiagnosticSource.IsEnabled())
+                            {
+                                return this.MessageDispatchTaskInstrumented(message);
+                            }
+                            else
+                            {
+                                return this.MessageDispatchTask(message);
+                            }
+                        });
                     }
                 }
                 catch (Exception exception)
@@ -86,15 +97,32 @@ namespace Microsoft.Azure.ServiceBus
             }
         }
 
+        async Task MessageDispatchTaskInstrumented(Message message)
+        {
+            Activity activity = diagnosticSource.ProcessStart(message);
+            Task processTask = null;
+            try
+            {
+                processTask = MessageDispatchTask(message);
+                await processTask.ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                diagnosticSource.ReportException(e);
+                throw;
+            }
+            finally
+            {
+                diagnosticSource.ProcessStop(activity, message, processTask?.Status);
+            }
+        }
+
         async Task MessageDispatchTask(Message message)
         {
             CancellationTokenSource renewLockCancellationTokenSource = null;
             Timer autoRenewLockCancellationTimer = null;
 
             MessagingEventSource.Log.MessageReceiverPumpDispatchTaskStart(this.messageReceiver.ClientId, message);
-            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
-            Activity activity = isDiagnosticsEnabled ? diagnosticSource.ProcessStart(message) : null;
-            Task processTask = null;
 
             if (this.ShouldRenewLock())
             {
@@ -108,18 +136,13 @@ namespace Microsoft.Azure.ServiceBus
             try
             {
                 MessagingEventSource.Log.MessageReceiverPumpUserCallbackStart(this.messageReceiver.ClientId, message);
-                processTask = this.onMessageCallback(message, this.pumpCancellationToken);
-                await processTask.ConfigureAwait(false);
+                await this.onMessageCallback(message, this.pumpCancellationToken).ConfigureAwait(false);
 
                 MessagingEventSource.Log.MessageReceiverPumpUserCallbackStop(this.messageReceiver.ClientId, message);
             }
             catch (Exception exception)
             {
                 MessagingEventSource.Log.MessageReceiverPumpUserCallbackException(this.messageReceiver.ClientId, message, exception);
-                if (isDiagnosticsEnabled)
-                {
-                    diagnosticSource.ReportException(exception);
-                }
                 await this.RaiseExceptionReceived(exception, ExceptionReceivedEventArgsAction.UserCallback).ConfigureAwait(false);
 
                 // Nothing much to do if UserCallback throws, Abandon message and Release semaphore.
@@ -128,10 +151,12 @@ namespace Microsoft.Azure.ServiceBus
                     await this.AbandonMessageIfNeededAsync(message).ConfigureAwait(false);
                 }
 
+                if (ServiceBusDiagnosticSource.IsEnabled())
+                {
+                    diagnosticSource.ReportException(exception);
+                }
                 // AbandonMessageIfNeededAsync should take care of not throwing exception
                 this.maxConcurrentCallsSemaphoreSlim.Release();
-
-                diagnosticSource.ProcessStop(activity, message, processTask?.Status);
 
                 return;
             }
@@ -146,7 +171,6 @@ namespace Microsoft.Azure.ServiceBus
             await this.CompleteMessageIfNeededAsync(message).ConfigureAwait(false);
             this.maxConcurrentCallsSemaphoreSlim.Release();
 
-            diagnosticSource.ProcessStop(activity, message, processTask?.Status);
             MessagingEventSource.Log.MessageReceiverPumpDispatchTaskStop(this.messageReceiver.ClientId, message, this.maxConcurrentCallsSemaphoreSlim.CurrentCount);
         }
 

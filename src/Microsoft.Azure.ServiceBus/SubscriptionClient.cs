@@ -1,6 +1,8 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using System.Diagnostics;
+
 namespace Microsoft.Azure.ServiceBus
 {
     using System;
@@ -52,6 +54,8 @@ namespace Microsoft.Azure.ServiceBus
         int prefetchCount;
         readonly object syncLock;
         readonly bool ownsConnection;
+        readonly ServiceBusDiagnosticSource diagnosticSource;
+
         IInnerSubscriptionClient innerSubscriptionClient;
         SessionClient sessionClient;
         SessionPumpHost sessionPumpHost;
@@ -108,6 +112,7 @@ namespace Microsoft.Azure.ServiceBus
             this.ReceiveMode = receiveMode;
             this.TokenProvider = this.ServiceBusConnection.CreateTokenProvider();
             this.CbsTokenProvider = new TokenProviderAdapter(this.TokenProvider, serviceBusConnection.OperationTimeout);
+            this.diagnosticSource = new ServiceBusDiagnosticSource($"{topicPath}/{subscriptionName}", serviceBusConnection.Endpoint);
 
             MessagingEventSource.Log.SubscriptionClientCreateStop(serviceBusConnection.Endpoint.Authority, topicPath, subscriptionName, this.ClientId);
         }
@@ -246,7 +251,7 @@ namespace Microsoft.Azure.ServiceBus
                                 this.ClientId,
                                 this.ReceiveMode,
                                 this.SessionClient,
-                                this.ServiceBusConnection.Endpoint.Authority);
+                                this.ServiceBusConnection.Endpoint);
                         }
                     }
                 }
@@ -404,7 +409,6 @@ namespace Microsoft.Azure.ServiceBus
             this.SessionPumpHost.OnSessionHandler(handler, sessionHandlerOptions);
         }
 
-        //TODO
         /// <summary>
         /// Adds a rule to the current subscription to filter the messages reaching from topic to the subscription.
         /// </summary>
@@ -445,20 +449,32 @@ namespace Microsoft.Azure.ServiceBus
             description.ValidateDescriptionName();
             MessagingEventSource.Log.AddRuleStart(this.ClientId, description.Name);
 
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.AddRuleStart(description) : null;
+            Task addRuleTask = null;
+
             try
             {
-                await this.InnerSubscriptionClient.OnAddRuleAsync(description).ConfigureAwait(false);
+                addRuleTask = this.InnerSubscriptionClient.OnAddRuleAsync(description);
+                await addRuleTask.ConfigureAwait(false);
             }
             catch (Exception exception)
             {
                 MessagingEventSource.Log.AddRuleException(this.ClientId, exception);
+                if (isDiagnosticsEnabled)
+                {
+                    this.diagnosticSource.ReportException(exception);
+                }
                 throw;
+            }
+            finally
+            {
+                this.diagnosticSource.AddRuleStop(activity, description, addRuleTask?.Status);
             }
 
             MessagingEventSource.Log.AddRuleStop(this.ClientId);
         }
 
-        //TODO
         /// <summary>
         /// Removes the rule on the subscription identified by <paramref name="ruleName" />.
         /// </summary>
@@ -473,21 +489,33 @@ namespace Microsoft.Azure.ServiceBus
             }
 
             MessagingEventSource.Log.RemoveRuleStart(this.ClientId, ruleName);
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.RemoveRuleStart(ruleName) : null;
+            Task removeRuleTask = null;
 
             try
             {
-                await this.InnerSubscriptionClient.OnRemoveRuleAsync(ruleName).ConfigureAwait(false);
+                removeRuleTask = this.InnerSubscriptionClient.OnRemoveRuleAsync(ruleName);
+                await removeRuleTask.ConfigureAwait(false);
             }
             catch (Exception exception)
             {
                 MessagingEventSource.Log.RemoveRuleException(this.ClientId, exception);
+                if (isDiagnosticsEnabled)
+                {
+                    this.diagnosticSource.ReportException(exception);
+                }
+
                 throw;
+            }
+            finally
+            {
+                this.diagnosticSource.RemoveRuleStop(activity, ruleName, removeRuleTask?.Status);
             }
 
             MessagingEventSource.Log.RemoveRuleStop(this.ClientId);
         }
 
-        //TODO
         /// <summary>
         /// Get all rules associated with the subscription.
         /// </summary>
@@ -496,18 +524,32 @@ namespace Microsoft.Azure.ServiceBus
             this.ThrowIfClosed();
 
             MessagingEventSource.Log.GetRulesStart(this.ClientId);
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.GetRulesStart() : null;
+            Task<IEnumerable<RuleDescription>> getRulesTask = null;
+
             var skip = 0;
             var top = int.MaxValue;
-            IEnumerable<RuleDescription> rules;
+            IEnumerable<RuleDescription> rules = null;
 
             try
             {
-                rules = await this.InnerSubscriptionClient.OnGetRulesAsync(top, skip);
+                getRulesTask = this.InnerSubscriptionClient.OnGetRulesAsync(top, skip);
+                rules = await getRulesTask.ConfigureAwait(false);
             }
             catch (Exception exception)
             {
                 MessagingEventSource.Log.GetRulesException(this.ClientId, exception);
+                if (isDiagnosticsEnabled)
+                {
+                    this.diagnosticSource.ReportException(exception);
+                }
+
                 throw;
+            }
+            finally
+            {
+                this.diagnosticSource.GetRulesStop(activity, rules, getRulesTask?.Status);
             }
 
             MessagingEventSource.Log.GetRulesStop(this.ClientId);

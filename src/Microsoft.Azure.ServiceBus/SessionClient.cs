@@ -1,6 +1,8 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using System.Diagnostics;
+
 namespace Microsoft.Azure.ServiceBus
 {
     using System;
@@ -45,6 +47,7 @@ namespace Microsoft.Azure.ServiceBus
     {
         const int DefaultPrefetchCount = 0;
         readonly bool ownsConnection;
+        readonly ServiceBusDiagnosticsSource diagnosticSource;
 
         /// <summary>
         /// Creates a new SessionClient from a <see cref="ServiceBusConnectionStringBuilder"/>
@@ -123,6 +126,7 @@ namespace Microsoft.Azure.ServiceBus
             this.ReceiveMode = receiveMode;
             this.PrefetchCount = prefetchCount;
             this.CbsTokenProvider = cbsTokenProvider;
+            this.diagnosticSource = new ServiceBusDiagnosticsSource(entityPath, serviceBusConnection.Endpoint);
 
             // Register plugins on the message session.
             if (registeredPlugins != null)
@@ -163,7 +167,6 @@ namespace Microsoft.Azure.ServiceBus
         /// </summary>
         public override IList<ServiceBusPlugin> RegisteredPlugins { get; } = new List<ServiceBusPlugin>();
 
-        //TODO
         /// <summary>
         /// Gets a session object of any <see cref="IMessageSession.SessionId"/> that can be used to receive messages for that sessionId.
         /// </summary>
@@ -214,6 +217,11 @@ namespace Microsoft.Azure.ServiceBus
                 this.PrefetchCount,
                 sessionId);
 
+            bool isDiagnosticsEnabled = ServiceBusDiagnosticsSource.IsEnabled();
+            Activity activity = isDiagnosticsEnabled ? this.diagnosticSource.AcceptMessageSessionStart(sessionId, serverWaitTime) : null;
+            Task acceptMessageSessionTask = null;
+
+
             var session = new MessageSession(
                 this.EntityPath,
                 this.EntityType,
@@ -227,8 +235,10 @@ namespace Microsoft.Azure.ServiceBus
 
             try
             {
-                await this.RetryPolicy.RunOperation(() => session.GetSessionReceiverLinkAsync(serverWaitTime), serverWaitTime)
-                    .ConfigureAwait(false);
+                acceptMessageSessionTask = this.RetryPolicy.RunOperation(
+                    () => session.GetSessionReceiverLinkAsync(serverWaitTime),
+                    serverWaitTime);
+                await acceptMessageSessionTask.ConfigureAwait(false);
             }
             catch (Exception exception)
             {
@@ -237,8 +247,17 @@ namespace Microsoft.Azure.ServiceBus
                     this.EntityPath,
                     exception);
 
+                if (isDiagnosticsEnabled)
+                {
+                    this.diagnosticSource.ReportException(exception);
+                }
+
                 await session.CloseAsync().ConfigureAwait(false);
                 throw AmqpExceptionHelper.GetClientException(exception);
+            }
+            finally
+            {
+                this.diagnosticSource.AcceptMessageSessionStop(activity, sessionId, serverWaitTime, session, acceptMessageSessionTask?.Status);
             }
 
             MessagingEventSource.Log.AmqpSessionClientAcceptMessageSessionStop(
