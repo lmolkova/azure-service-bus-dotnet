@@ -21,7 +21,7 @@ namespace Microsoft.Azure.ServiceBus
 
         public const string BaseActivityName = "Microsoft.Azure.ServiceBus.";
 
-        public const string RequestIdPropertyName = "Request-Id";
+        public const string RequestIdPropertyName = "Activity-Id";
         public const string CorrelationContextPropertyName = "Correlation-Context";
         public const string RelatedToTag = "RelatedTo";
 
@@ -63,7 +63,6 @@ namespace Microsoft.Azure.ServiceBus
         {
             if (activity != null)
             {
-                SetTags(activity, messageList);
                 DiagnosticListener.StopActivity(activity, new
                 {
                     Messages = messageList,
@@ -94,7 +93,6 @@ namespace Microsoft.Azure.ServiceBus
         {
             if (activity != null)
             {
-                SetTags(activity, message);
                 DiagnosticListener.StopActivity(activity, new
                 {
                     Message = message,
@@ -126,7 +124,6 @@ namespace Microsoft.Azure.ServiceBus
         {
             if (activity != null)
             {
-                SetTags(activity, message);
                 DiagnosticListener.StopActivity(activity, new
                 {
                     Session = session,
@@ -163,7 +160,6 @@ namespace Microsoft.Azure.ServiceBus
         {
             if (activity != null)
             {
-                SetTags(activity, message);
                 DiagnosticListener.StopActivity(activity, new
                 {
                     Message = message,
@@ -409,7 +405,7 @@ namespace Microsoft.Azure.ServiceBus
         {
             return Start("AddRule", () => new
             {
-                Description = description,
+                Rule = description,
                 Entity = this.entityPath,
                 Endpoint = this.endpoint
             },
@@ -422,7 +418,7 @@ namespace Microsoft.Azure.ServiceBus
             {
                 DiagnosticListener.StopActivity(activity, new
                 {
-                    Description = description,
+                    Rule = description,
                     Entity = this.entityPath,
                     Endpoint = this.endpoint,
                     Status = status ?? TaskStatus.Faulted
@@ -510,7 +506,6 @@ namespace Microsoft.Azure.ServiceBus
         {
             if (activity != null)
             {
-                activity.AddTag("SessionId", sessionId);
                 DiagnosticListener.StopActivity(activity, new
                 {
                     SessionId = sessionId,
@@ -526,7 +521,7 @@ namespace Microsoft.Azure.ServiceBus
         #endregion
 
 
-        #region GetsessionStateAsync
+        #region GetSessionStateAsync
 
         internal Activity GetSessionStateStart(string sessionId)
         {
@@ -543,7 +538,6 @@ namespace Microsoft.Azure.ServiceBus
         {
             if (activity != null)
             {
-                activity.AddTag("SessionId", sessionId);
                 DiagnosticListener.StopActivity(activity, new
                 {
                     SessionId = sessionId,
@@ -572,13 +566,13 @@ namespace Microsoft.Azure.ServiceBus
                 a => a.AddTag("SessionId", sessionId));
         }
 
-        internal void SetSessionStateStop(Activity activity, string sessionId, TaskStatus? status)
+        internal void SetSessionStateStop(Activity activity, byte[] state, string sessionId, TaskStatus? status)
         {
             if (activity != null)
             {
-                activity.AddTag("SessionId", sessionId);
                 DiagnosticListener.StopActivity(activity, new
                 {
+                    State = state,
                     SessionId = sessionId,
                     Entity = this.entityPath,
                     Endpoint = this.endpoint,
@@ -607,7 +601,6 @@ namespace Microsoft.Azure.ServiceBus
         {
             if (activity != null)
             {
-                activity.AddTag("SessionId", sessionId);
                 DiagnosticListener.StopActivity(activity, new
                 {
                     SessionId = sessionId,
@@ -641,7 +634,7 @@ namespace Microsoft.Azure.ServiceBus
             if (DiagnosticListener.IsEnabled(activityName, this.entityPath))
             {
                 activity = new Activity(activityName);
-                setTags(activity);
+                setTags?.Invoke(activity);
 
                 if (DiagnosticListener.IsEnabled(activityName + ".Start"))
                 {
@@ -712,7 +705,7 @@ namespace Microsoft.Azure.ServiceBus
 
                 if (relatedTo.Count > 0)
                 {
-                    activity.AddTag(RelatedToTag, string.Join(",", relatedTo));
+                    activity.AddTag(RelatedToTag, string.Join(",", relatedTo.Distinct()));
                 }
             }
         }
@@ -725,7 +718,7 @@ namespace Microsoft.Azure.ServiceBus
             if (DiagnosticListener.IsEnabled(activityName, entityPath))
             {
                 var tmpActivity = message.ExtractActivity(activityName);
-                setTags(tmpActivity);
+                setTags?.Invoke(tmpActivity);
                 
                 if (DiagnosticListener.IsEnabled(activityName, entityPath, tmpActivity))
                 {
@@ -751,7 +744,7 @@ namespace Microsoft.Azure.ServiceBus
                 activity.AddTag("MessageId", string.Join(",", messageIds));
             }
 
-            var sessionIds = messageList.Where(m => m.SessionId != null).Select(m => m.SessionId).ToArray();
+            var sessionIds = messageList.Where(m => m.SessionId != null).Select(m => m.SessionId).Distinct().ToArray();
             if (sessionIds.Any())
             {
                 activity.AddTag("SessionId", string.Join(",", sessionIds));

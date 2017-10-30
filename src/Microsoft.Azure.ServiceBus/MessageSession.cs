@@ -58,7 +58,6 @@ namespace Microsoft.Azure.ServiceBus
             return ServiceBusDiagnosticSource.IsEnabled() ? this.OnSetStateInstrumentedAsync(sessionState) : this.OnSetStateAsync(sessionState);
         }
 
-        //TODO
         public Task RenewSessionLockAsync()
         {
             this.ThrowIfClosed();
@@ -209,7 +208,7 @@ namespace Microsoft.Azure.ServiceBus
             }
             finally
             {
-                this.diagnosticSource.SetSessionStateStop(activity, this.SessionId, setStateTask?.Status);
+                this.diagnosticSource.SetSessionStateStop(activity, sessionState, this.SessionId, setStateTask?.Status);
             }
         }
 
